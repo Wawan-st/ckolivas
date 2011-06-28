@@ -1,19 +1,23 @@
 AC_INIT([cpuminer], [1.0.2])
 
-AC_PREREQ(2.52)
+AC_PREREQ(2.59)
 AC_CANONICAL_SYSTEM
+AC_CONFIG_MACRO_DIR([m4])
 AC_CONFIG_SRCDIR([cpu-miner.c])
-AM_INIT_AUTOMAKE([gnu])
-AC_CONFIG_HEADERS([cpuminer-config.h])
+AC_CONFIG_HEADERS([config.h])
+AM_INIT_AUTOMAKE([foreign])
 
 dnl Make sure anyone changing configure.ac/Makefile.am has a clue
 AM_MAINTAINER_MODE
 
 dnl Checks for programs
 AC_PROG_CC
+gl_EARLY
 AC_PROG_GCC_TRADITIONAL
 AM_PROG_CC_C_O
 AC_PROG_RANLIB
+
+gl_INIT
 
 dnl Checks for header files.
 AC_HEADER_STDC
@@ -39,8 +43,20 @@ case $target in
     ;;
 esac
 
+# Check for OpenCL (the long way needed on mingw32 due to calling conventions)
+AC_MSG_CHECKING([for OpenCL])
+SAVED_LIBS=$LIBS
+LIBS="$LIBS -lOpenCL"
+AC_LINK_IFELSE(
+  [AC_LANG_PROGRAM([[#include <CL/cl.h>]],
+    [[return clSetKernelArg(0, 0, 0, 0); ]])],
+  [AC_MSG_RESULT(yes)
+   AM_CONDITIONAL(HAVE_OPENCL, true)
+   OPENCL_LIBS=-lOpenCL],
+  [AC_MSG_RESULT(no)
+   AM_CONDITIONAL(HAVE_OPENCL, false)])
+LIBS=$SAVED_LIBS
 
-AC_CHECK_LIB(OpenCL, clSetKernelArg, OPENCL_LIBS=-lOpenCL)
 AC_CHECK_LIB(jansson, json_loads, request_jansson=false, request_jansson=true)
 AC_CHECK_LIB(pthread, pthread_create, PTHREAD_LIBS=-lpthread)
 
@@ -95,7 +111,7 @@ PKG_PROG_PKG_CONFIG()
 
 LIBCURL_CHECK_CONFIG(, 7.10.1, ,
   [AC_MSG_ERROR([Missing required libcurl >= 7.10.1])])
-
+  
 AC_SUBST(OPENCL_LIBS)
 AC_SUBST(JANSSON_LIBS)
 AC_SUBST(PTHREAD_FLAGS)
@@ -106,6 +122,7 @@ AC_CONFIG_FILES([
 	compat/Makefile
 	compat/jansson/Makefile
 	x86_64/Makefile
+	lib/Makefile
 	])
 AC_OUTPUT
 
