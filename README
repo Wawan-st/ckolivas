@@ -10,13 +10,17 @@ Dependencies:
 
 Basic *nix build instructions:
 	./autogen.sh	# only needed if building from git repo
-	CFLAGS="-O3 -Wall -msse2" ./configure
+	export CFLAGS="-O3 -Wall -msse2 -I/path/to/GPU-SDK/include"
+	export LDFLAGS="-L/path/to/GPU-SDK/lib -lOpenCL"
+	./configure
 	make
 
 Basic WIN32 build instructions (on Fedora 13; requires mingw32):
 	./autogen.sh	# only needed if building from git repo
 	rm -f mingw32-config.cache
-	MINGW32_CFLAGS="-O3 -Wall -msse2" mingw32-configure
+	export MINGW32_CFLAGS="-O3 -Wall -msse2 -I/path/to/GPU-SDK/include"
+	export MINGW32_LDFLAGS="-L/path/to/GPU-SDK/lib -lOpenCL"
+	mingw32-configure
 	make
 	./mknsis.sh
 
