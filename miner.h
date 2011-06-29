@@ -9,6 +9,11 @@
 #include <pthread.h>
 #include <jansson.h>
 #include <curl/curl.h>
+#ifdef __APPLE_CC__
+#include <OpenCL/opencl.h>
+#else
+#include <CL/cl.h>
+#endif
 
 #ifdef STDC_HEADERS
 # include <stdlib.h>
@@ -105,10 +110,19 @@ enum {
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 #endif
 
+struct cgpu_info {
+	int is_gpu;
+	int cpu_gpu;
+	int accepted;
+	int rejected;
+	int hw_errors;
+};
+
 struct thr_info {
 	int		id;
 	pthread_t	pth;
 	struct thread_q	*q;
+	struct cgpu_info *cgpu;
 };
 
 static inline uint32_t swab32(uint32_t v)
@@ -190,10 +204,41 @@ struct work_restart {
 };
 
 extern pthread_mutex_t time_lock;
+extern int hw_errors;
 extern bool use_syslog;
 extern struct thr_info *thr_info;
 extern int longpoll_thr_id;
 extern struct work_restart *work_restart;
+
+typedef struct {
+    cl_uint ctx_a; cl_uint ctx_b; cl_uint ctx_c; cl_uint ctx_d;
+    cl_uint ctx_e; cl_uint ctx_f; cl_uint ctx_g; cl_uint ctx_h;
+    cl_uint cty_a; cl_uint cty_b; cl_uint cty_c; cl_uint cty_d;
+    cl_uint cty_e; cl_uint cty_f; cl_uint cty_g; cl_uint cty_h;
+    cl_uint merkle; cl_uint ntime; cl_uint nbits; cl_uint nonce;
+	cl_uint fW0; cl_uint fW1; cl_uint fW2; cl_uint fW3; cl_uint fW15;
+	cl_uint fW01r; cl_uint fcty_e; cl_uint fcty_e2;
+	cl_uint W16; cl_uint W17; cl_uint W2;
+	cl_uint PreVal4; cl_uint T1;
+} dev_blk_ctx;
+
+struct work {
+	unsigned char	data[128];
+	unsigned char	hash1[64];
+	unsigned char	midstate[32];
+	unsigned char	target[32];
+
+	unsigned char	hash[32];
+
+	uint32_t		output[1];
+	uint32_t		res_nonce;
+	uint32_t		valid;
+	dev_blk_ctx		blk;
+
+	int thr_id;
+};
+
+bool submit_nonce(struct thr_info *thr, struct work *work, uint32_t nonce);
 
 extern void applog(int prio, const char *fmt, ...);
 extern struct thread_q *tq_new(void);
