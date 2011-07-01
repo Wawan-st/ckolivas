@@ -45,7 +45,7 @@ AC_ARG_WITH([opencl-libdir],
 	[with_opencl_lib=$withval],
 	[with_opencl_lib="auto"])
 if test "x$with_opencl_lib" = xauto; then
-	AC_CHECK_LIB([OpenCL], [OpenCL], [OPENCL_LIBS="-lOpenCL"], AC_MSG_ERROR([OpenCL library could not be found]))
+	AC_CHECK_LIB([OpenCL], [clSetKernelArg], [OPENCL_LIBS="-lOpenCL"], AC_MSG_ERROR([OpenCL library could not be found]))
 else
 	OPENCL_LIBS="$with_opencl_lib/libOpenCL.so"
 fi
@@ -55,7 +55,13 @@ AC_ARG_WITH([opencl-inc],
 	[with_opencl_inc=$withval],
 	[with_opencl_inc="auto"])
 if test "x$with_opencl_inc" = xauto; then
-	AC_CHECK_HEADERS(CL/cl.h, [found="yes"])
+	for dir in /usr/include /usr/include/nvidia-current /usr/local/include; do
+		AC_CHECK_FILE($dir/CL/cl.h, [found="yes"])
+		if test "$found" = "yes"; then
+			OPENCL_INCLUDES="-I$dir"
+			break
+		fi
+	done
 	AC_CHECK_HEADERS(OpenCL/opencl.h, [found="yes"])
 	if test "x$found" = x; then
 		AC_MSG_ERROR([OpenCL headers could not be found])
