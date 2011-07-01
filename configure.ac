@@ -45,7 +45,7 @@ AC_ARG_WITH([opencl-libdir],
 	[with_opencl_lib=$withval],
 	[with_opencl_lib="auto"])
 if test "x$with_opencl_lib" = xauto; then
-	AC_CHECK_LIB([OpenCL], [OpenCL], [OPENCL_LIBS="-lOpenCL"], AC_MSG_ERROR([OpenCL library could not be found]))
+	AC_CHECK_LIB([OpenCL], [clSetKernelArg], [OPENCL_LIBS="-lOpenCL"], AC_MSG_ERROR([OpenCL library could not be found]))
 else
 	OPENCL_LIBS="$with_opencl_lib/libOpenCL.so"
 fi
