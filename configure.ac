@@ -55,8 +55,7 @@ AC_ARG_WITH([opencl-inc],
 	[with_opencl_inc=$withval],
 	[with_opencl_inc="auto"])
 if test "x$with_opencl_inc" = xauto; then
-	AC_CHECK_HEADERS(CL/cl.h, [found="yes"])
-	AC_CHECK_HEADERS(OpenCL/opencl.h, [found="yes"])
+	AC_CHECK_HEADERS(CL/cl.h, [found="yes"], AC_CHECK_HEADERS(OpenCL/opencl.h, [found="yes"]))
 	if test "x$found" = x; then
 		AC_MSG_ERROR([OpenCL headers could not be found])
 	fi
