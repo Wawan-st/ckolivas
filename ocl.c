@@ -4,9 +4,15 @@
 #include <string.h>
 #include <stdio.h>
 #include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <netdb.h> 
+
+#ifdef WIN32
+	#include <winsock2.h>
+#else
+	#include <sys/socket.h>
+	#include <netinet/in.h>
+	#include <netdb.h> 
+#endif
+
 #include <time.h>
 #include <sys/time.h>
 #include <pthread.h>
@@ -397,7 +403,7 @@ _clState *initCl(unsigned int gpu, char *name, size_t nameSize)
 		if (fread(binaries[gpu], 1, binary_sizes[gpu], binaryfile) != binary_sizes[gpu]) {
 			applog(LOG_ERR, "Unable to fread binaries[gpu]");
 			fclose(binaryfile);
-			return NULL;
+			goto build;
 		}
 		fclose(binaryfile);
 

@@ -24,3 +24,8 @@ config.sub
 
 mingw32-config.cache
 
+*~
+
+ext_deps
+
+config.h
