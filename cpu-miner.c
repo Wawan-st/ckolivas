@@ -10,7 +10,6 @@
  */
 
 #include "config.h"
-#define _GNU_SOURCE
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -118,8 +117,8 @@ bool want_longpoll = true;
 bool have_longpoll = false;
 bool use_syslog = false;
 static bool opt_quiet = false;
-static int opt_retries = 10;
-static int opt_fail_pause = 30;
+static int opt_retries = -1;
+static int opt_fail_pause = 5;
 static int opt_log_interval = 5;
 static int opt_queue = 2;
 int opt_vectors;
@@ -219,12 +218,12 @@ static struct option_help options_help[] = {
 	  "(-q) Disable per-thread hashmeter output (default: off)" },
 
 	{ "retries N",
-	  "(-r N) Number of times to retry, if JSON-RPC call fails\n"
-	  "\t(default: 10; use -1 for \"never\")" },
+	  "(-r N) Number of times to retry before giving up, if JSON-RPC call fails\n"
+	  "\t(default: -1; use -1 for \"never\")" },
 
 	{ "retry-pause N",
 	  "(-R N) Number of seconds to pause, between retries\n"
-	  "\t(default: 30)" },
+	  "\t(default: 5)" },
 
 	{ "scantime N",
 	  "(-s N) Upper bound on time spent scanning current work,\n"
@@ -663,29 +662,20 @@ static void hashmeter(int thr_id, struct timeval *diff,
 	if (opt_debug)
 		applog(LOG_DEBUG, "[thread %d: %lu hashes, %.0f khash/sec]",
 			thr_id, hashes_done, hashes_done / secs);
+
+	/* Totals are updated by all threads so can race without locking */
+	pthread_mutex_lock(&hash_lock);
 	gettimeofday(&temp_tv_end, NULL);
 	timeval_subtract(&total_diff, &temp_tv_end, &total_tv_end);
 	local_secs = (double)total_diff.tv_sec + ((double)total_diff.tv_usec / 1000000.0);
 
-	if (opt_n_threads + gpu_threads > 1) {
-		/* Totals are updated by all threads so can race without locking */
-		pthread_mutex_lock(&hash_lock);
-		total_mhashes_done += local_mhashes;
-		local_mhashes_done += local_mhashes;
-		if (total_diff.tv_sec < opt_log_interval) {
-			/* Only update the total every opt_log_interval seconds */
-			pthread_mutex_unlock(&hash_lock);
-			return;
-		}
-		gettimeofday(&total_tv_end, NULL);
-		pthread_mutex_unlock(&hash_lock);
-	} else {
-		total_mhashes_done += local_mhashes;
-		local_mhashes_done += local_mhashes;
-		if (total_diff.tv_sec < opt_log_interval) 
-			return;
-		gettimeofday(&total_tv_end, NULL);
-	}
+	total_mhashes_done += local_mhashes;
+	local_mhashes_done += local_mhashes;
+	if (total_diff.tv_sec < opt_log_interval)
+		/* Only update the total every opt_log_interval seconds */
+		goto out_unlock;
+	gettimeofday(&total_tv_end, NULL);
+
 	/* Use a rolling average by faking an exponential decay over 5 * log */
 	rolling_local = ((rolling_local * 0.9) + local_mhashes_done) / 1.9;
 
@@ -696,6 +686,8 @@ static void hashmeter(int thr_id, struct timeval *diff,
 		rolling_local / local_secs,
 		total_mhashes_done / total_secs, accepted, rejected, hw_errors);
 	local_mhashes_done = 0;
+out_unlock:
+	pthread_mutex_unlock(&hash_lock);
 }
 
 /* All work is queued flagged as being for thread 0 and then the mining thread
@@ -721,16 +713,49 @@ static bool queue_request(void)
 	return true;
 }
 
-static bool get_work(struct work *work)
+static bool discard_request(void)
 {
 	struct thr_info *thr = &thr_info[0];
-	static bool first_work = true;
 	struct work *work_heap;
-	bool ret = false;
+
+	work_heap = tq_pop(thr->q, NULL);
+	if (unlikely(!work_heap))
+		return false;
+	free(work_heap);
+	return true;
+}
+
+static void flush_requests(void)
+{
 	unsigned int i;
 
-get_new:
-	if (unlikely(!queue_request()))
+	/* Queue a whole batch of new requests */
+	for (i = 0; i < opt_queue; i++) {
+		if (unlikely(!queue_request())) {
+			applog(LOG_ERR, "Failed to queue requests in flush_requests");
+			kill_work();
+			return;
+		}
+	}
+
+	/* Pop off the old requests. Cancelling the requests would be better
+	 * but is tricky */
+	for (i = 0; i < opt_queue; i++) {
+		if (unlikely(!discard_request())) {
+			applog(LOG_ERR, "Failed to discard requests in flush_requests");
+			kill_work();
+			return;
+		}
+	}
+}
+
+static bool get_work(struct work *work, bool queued)
+{
+	struct thr_info *thr = &thr_info[0];
+	struct work *work_heap;
+	bool ret = false;
+
+	if (unlikely(!queued && !queue_request()))
 		goto out;
 
 	/* wait for 1st response, or get cached response */
@@ -738,38 +763,9 @@ get_new:
 	if (unlikely(!work_heap))
 		goto out;
 
-	if (unlikely(work_restart[opt_n_threads + gpu_threads].restart)) {
-		work_restart[opt_n_threads + gpu_threads].restart = 0;
-		free(work_heap);
-		if (opt_debug)
-			applog(LOG_DEBUG, "New block detected, discarding old work");
-		for (i = 1; i < opt_queue; i++) {
-			/* Pop off all the work. Cancelling the requests would
-			 * be better but tricky. */
-			work_heap = tq_pop(thr->q, NULL);
-			if (unlikely(!work_heap))
-				goto out;
-			free(work_heap);
-			if (unlikely(!queue_request()))
-				goto out;
-		}
-		goto get_new;
-	}
-
-	if (unlikely(first_work)) {
-		first_work = false;
-		/* send for extra work requests for the next time get_work
-		 * is called. */
-		for (i = 1; i < opt_queue; i++) {
-			if (unlikely(!queue_request()))
-				goto out_free;
-		}
-	}
-
 	memcpy(work, work_heap, sizeof(*work));
 	memcpy(current_block, work->data, 36);
 	ret = true;
-out_free:
 	free(work_heap);
 out:
 	return ret;
@@ -827,6 +823,13 @@ static void *miner_thread(void *userdata)
 	struct thr_info *mythr = userdata;
 	const int thr_id = mythr->id;
 	uint32_t max_nonce = 0xffffff;
+	bool needs_work = true;
+	/* Try to cycle approximately 5 times before each log update */
+	const unsigned long cycle = opt_log_interval / 5 ? : 1;
+	/* Request the next work item at 2/3 of the scantime */
+	unsigned const int request_interval = opt_scantime * 2 / 3 ? : 1;
+	unsigned const long request_nonce = MAXTHREADS / 3 * 2;
+	bool requested = false;
 
 	/* Set worker threads to nice 19 and then preferentially to SCHED_IDLE
 	 * and if that fails, then SCHED_BATCH. No need for this to be an
@@ -842,18 +845,32 @@ static void *miner_thread(void *userdata)
 	while (1) {
 		struct work work __attribute__((aligned(128)));
 		unsigned long hashes_done;
-		struct timeval tv_start, tv_end, diff;
+		struct timeval tv_workstart, tv_start, tv_end, diff;
 		uint64_t max64;
 		bool rc;
 
-		/* obtain new work from internal workio thread */
-		if (unlikely(!get_work(&work))) {
-			applog(LOG_ERR, "work retrieval failed, exiting "
-				"mining thread %d", mythr->id);
-			goto out;
+		if (needs_work) {
+			if (work_restart[thr_id].restart) {
+				if (requested) {
+					/* We have one extra request than desired now */
+					if (unlikely(!discard_request())) {
+						applog(LOG_ERR, "Failed to discard request in uminer thread");
+						goto out;
+					}
+				} else
+					requested = true;
+			}
+			gettimeofday(&tv_workstart, NULL);
+			/* obtain new work from internal workio thread */
+			if (unlikely(!get_work(&work, requested))) {
+				applog(LOG_ERR, "work retrieval failed, exiting "
+					"mining thread %d", mythr->id);
+				goto out;
+			}
+			work.thr_id = thr_id;
+			needs_work = requested = false;
+			work.blk.nonce = 0;
 		}
-		work.thr_id = thr_id;
-
 		hashes_done = 0;
 		gettimeofday(&tv_start, NULL);
 
@@ -862,7 +879,8 @@ static void *miner_thread(void *userdata)
 		case ALGO_C:
 			rc = scanhash_c(thr_id, work.midstate, work.data + 64,
 				        work.hash1, work.hash, work.target,
-					max_nonce, &hashes_done);
+					max_nonce, &hashes_done,
+					work.blk.nonce);
 			break;
 
 #ifdef WANT_X8664_SSE2
@@ -871,7 +889,8 @@ static void *miner_thread(void *userdata)
 			        scanhash_sse2_64(thr_id, work.midstate, work.data + 64,
 						 work.hash1, work.hash,
 						 work.target,
-					         max_nonce, &hashes_done);
+					         max_nonce, &hashes_done,
+						 work.blk.nonce);
 			rc = (rc5 == -1) ? false : true;
 			}
 			break;
@@ -883,7 +902,8 @@ static void *miner_thread(void *userdata)
 				ScanHash_4WaySSE2(thr_id, work.midstate, work.data + 64,
 						  work.hash1, work.hash,
 						  work.target,
-						  max_nonce, &hashes_done);
+						  max_nonce, &hashes_done,
+						  work.blk.nonce);
 			rc = (rc4 == -1) ? false : true;
 			}
 			break;
@@ -892,20 +912,23 @@ static void *miner_thread(void *userdata)
 #ifdef WANT_VIA_PADLOCK
 		case ALGO_VIA:
 			rc = scanhash_via(thr_id, work.data, work.target,
-					  max_nonce, &hashes_done);
+					  max_nonce, &hashes_done,
+					  work.blk.nonce);
 			break;
 #endif
 		case ALGO_CRYPTOPP:
 			rc = scanhash_cryptopp(thr_id, work.midstate, work.data + 64,
 				        work.hash1, work.hash, work.target,
-					max_nonce, &hashes_done);
+					max_nonce, &hashes_done,
+					work.blk.nonce);
 			break;
 
 #ifdef WANT_CRYPTOPP_ASM32
 		case ALGO_CRYPTOPP_ASM32:
 			rc = scanhash_asm32(thr_id, work.midstate, work.data + 64,
 				        work.hash1, work.hash, work.target,
-					max_nonce, &hashes_done);
+					max_nonce, &hashes_done,
+					work.blk.nonce);
 			break;
 #endif
 
@@ -918,18 +941,21 @@ static void *miner_thread(void *userdata)
 		gettimeofday(&tv_end, NULL);
 		timeval_subtract(&diff, &tv_end, &tv_start);
 
+		hashes_done -= work.blk.nonce;
 		hashmeter(thr_id, &diff, hashes_done);
+		work.blk.nonce += hashes_done;
 
-		/* adjust max_nonce to meet target scan time */
+		/* adjust max_nonce to meet target cycle time */
 		if (diff.tv_usec > 500000)
 			diff.tv_sec++;
-		if (diff.tv_sec > 0) {
-			max64 =
-			   ((uint64_t)hashes_done * (opt_log_interval ? : opt_scantime)) / diff.tv_sec;
-			if (max64 > 0xfffffffaULL)
-				max64 = 0xfffffffaULL;
-			max_nonce = max64;
-		}
+		if (diff.tv_sec != cycle) {
+			max64 = work.blk.nonce +
+				((uint64_t)hashes_done * cycle) / diff.tv_sec;
+		} else
+			max64 = work.blk.nonce + hashes_done;
+		if (max64 > 0xfffffffaULL)
+			max64 = 0xfffffffaULL;
+		max_nonce = max64;
 
 		/* if nonce found, submit work */
 		if (unlikely(rc)) {
@@ -937,7 +963,19 @@ static void *miner_thread(void *userdata)
 				applog(LOG_DEBUG, "CPU %d found something?", cpu_from_thr_id(thr_id));
 			if (unlikely(!submit_work_sync(mythr, &work)))
 				break;
+			work.blk.nonce += 4;
 		}
+
+		timeval_subtract(&diff, &tv_end, &tv_workstart);
+		if (!requested && (diff.tv_sec > request_interval || work.blk.nonce > request_nonce)) {
+			if (unlikely(!queue_request()))
+				goto out;
+			requested = true;
+		}
+
+		if (diff.tv_sec > opt_scantime || work_restart[thr_id].restart ||
+			work.blk.nonce >= MAXTHREADS - hashes_done)
+				needs_work = true;
 	}
 
 out:
@@ -1007,8 +1045,9 @@ static inline int gpu_from_thr_id(int thr_id)
 
 static void *gpuminer_thread(void *userdata)
 {
+	const unsigned long cycle = opt_log_interval / 5 ? : 1;
+	struct timeval tv_start, tv_end, diff;
 	struct thr_info *mythr = userdata;
-	struct timeval tv_start, diff;
 	const int thr_id = mythr->id;
 	uint32_t *res, *blank_res;
 
@@ -1026,6 +1065,11 @@ static void *gpuminer_thread(void *userdata)
 	unsigned const int hashes = threads * vectors;
 	unsigned int hashes_done = 0;
 
+	/* Request the next work item at 2/3 of the scantime */
+	unsigned const int request_interval = opt_scantime * 2 / 3 ? : 1;
+	unsigned const long request_nonce = MAXTHREADS / 3 * 2;
+	bool requested = false;
+
 	res = calloc(BUFFERSIZE, 1);
 	blank_res = calloc(BUFFERSIZE, 1);
 
@@ -1037,11 +1081,11 @@ static void *gpuminer_thread(void *userdata)
 	gettimeofday(&tv_start, NULL);
 	globalThreads[0] = threads;
 	localThreads[0] = clState->work_size;
-	work_restart[thr_id].restart = 1;
-	diff.tv_sec = 0;
+	diff.tv_sec = ~0UL;
+	gettimeofday(&tv_end, NULL);
 
 	while (1) {
-		struct timeval tv_end, tv_workstart;
+		struct timeval tv_workstart;
 
 		/* This finish flushes the readbuffer set with CL_FALSE later */
 		clFinish(clState->commandQueue);
@@ -1054,13 +1098,24 @@ static void *gpuminer_thread(void *userdata)
 			memset(res, 0, BUFFERSIZE);
 
 			gettimeofday(&tv_workstart, NULL);
+			if (work_restart[thr_id].restart) {
+				if (requested) {
+					/* We have one extra request than desired now */
+					if (unlikely(!discard_request())) {
+						applog(LOG_ERR, "Failed to discard request in gpuminer thread");
+						goto out;
+					}
+				} else
+					requested = true;
+			}
 			/* obtain new work from internal workio thread */
-			if (unlikely(!get_work(work))) {
+			if (unlikely(!get_work(work, requested))) {
 				applog(LOG_ERR, "work retrieval failed, exiting "
 					"gpu mining thread %d", mythr->id);
 				goto out;
 			}
 			work->thr_id = thr_id;
+			requested = false;
 
 			precalc_hash(&work->blk, (uint32_t *)(work->midstate), (uint32_t *)(work->data + 64));
 			work->blk.nonce = 0;
@@ -1103,13 +1158,20 @@ static void *gpuminer_thread(void *userdata)
 		timeval_subtract(&diff, &tv_end, &tv_start);
 		hashes_done += hashes;
 		work->blk.nonce += hashes;
-		if (diff.tv_sec >= 1) {
+		if (diff.tv_usec > 500000)
+			diff.tv_sec++;
+		if (diff.tv_sec >= cycle) {
 			hashmeter(thr_id, &diff, hashes_done);
 			gettimeofday(&tv_start, NULL);
 			hashes_done = 0;
 		}
 
 		timeval_subtract(&diff, &tv_end, &tv_workstart);
+		if (!requested && (diff.tv_sec > request_interval || work->blk.nonce > request_nonce)) {
+			if (unlikely(!queue_request()))
+				goto out;
+			requested = true;
+		}
 	}
 out:
 	tq_freeze(mythr->q);
@@ -1121,8 +1183,20 @@ static void restart_threads(void)
 {
 	int i;
 
-	for (i = 0; i < opt_n_threads + gpu_threads + 1; i++)
+	/* Discard old queued requests and get new ones */
+	flush_requests();
+
+	/* Queue extra requests for each worker thread since they'll all need
+	 * new work. Each worker will set their "requested" flag to true
+	 * should they receive a .restart */
+	for (i = 0; i < opt_n_threads + gpu_threads; i++) {
+		if (unlikely(!queue_request())) {
+			applog(LOG_ERR, "Failed to queue requests in flush_requests");
+			kill_work();
+			return;
+		}
 		work_restart[i].restart = 1;
+	}
 }
 
 static void *longpoll_thread(void *userdata)
@@ -1459,7 +1533,7 @@ int main (int argc, char *argv[])
 		openlog("cpuminer", LOG_PID, LOG_USER);
 #endif
 
-	work_restart = calloc(opt_n_threads + gpu_threads + 1, sizeof(*work_restart));
+	work_restart = calloc(opt_n_threads + gpu_threads, sizeof(*work_restart));
 	if (!work_restart)
 		return 1;
 
@@ -1513,6 +1587,14 @@ int main (int argc, char *argv[])
 		gpus = calloc(nDevs, sizeof(struct cgpu_info));
 		if (unlikely(!gpus)) {
 			applog(LOG_ERR, "Failed to calloc gpus");
+			return 1;
+		}
+	}
+
+	/* Put the extra work in the queue */
+	for (i = 1; i < opt_queue; i++) {
+		if (unlikely(!queue_request())) {
+			applog(LOG_ERR, "Failed to queue_request in main");
 			return 1;
 		}
 	}

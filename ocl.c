@@ -1,4 +1,8 @@
-#define _GNU_SOURCE
+/*
+ * Copyright 2011 Con Kolivas
+ */
+#include "config.h"
+
 #include <signal.h>
 #include <stdlib.h>
 #include <string.h>
