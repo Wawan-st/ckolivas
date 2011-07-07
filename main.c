@@ -155,13 +155,14 @@ static struct timeval total_tv_start, total_tv_end;
 static int accepted, rejected;
 int hw_errors;
 static int total_queued;
-static char current_block[36];
-static char blank[36];
+static unsigned int getwork_requested = 0;
+static char current_block[37];
+static char blank[37];
 
 static void applog_and_exit(const char *fmt, ...)
 {
 	va_list ap;
-
+	
 	va_start(ap, fmt);
 	vapplog(LOG_ERR, fmt, ap);
 	va_end(ap);
@@ -487,6 +488,7 @@ static bool submit_upstream_work(const struct work *work)
 	bool rc = false;
 	struct cgpu_info *cgpu = thr_info[work->thr_id].cgpu;
 	CURL *curl = curl_easy_init();
+	double utility, efficiency;
 
 	if (unlikely(!curl)) {
 		applog(LOG_ERR, "CURL initialisation failed");
@@ -525,21 +527,29 @@ static bool submit_upstream_work(const struct work *work)
 		accepted++;
 		if (opt_debug)
 			applog(LOG_DEBUG, "PROOF OF WORK RESULT: true (yay!!!)");
-		printf("[Accepted] ");
+		if (!opt_quiet)
+			printf("[Accepted] ");
 	} else {
 		cgpu->rejected++;
 		rejected++;
 		if (opt_debug)
 			applog(LOG_DEBUG, "PROOF OF WORK RESULT: false (booooo)");
-		printf("[Rejected] ");
+		if (!opt_quiet)
+			printf("[Rejected] ");
 	}
+
+	utility = accepted / ( total_secs ? total_secs : 1 ) * 60;
+	efficiency = getwork_requested ? cgpu->accepted * 100.0 / getwork_requested : 0.0;
+
 	if (!opt_quiet) {
-		printf("[%sPU: %d] [Rate: %.2f Mhash/s] [Accepted: %d  Rejected: %d  HW errors: %d]                 \n",
-		cgpu->is_gpu? "G" : "C", cgpu->cpu_gpu, cgpu->total_mhashes / total_secs,
-			cgpu->accepted, cgpu->rejected, cgpu->hw_errors);
+		printf("[%sPU %d] [%.1f Mh/s] [Q:%d  A:%d  R:%d  HW:%d  E:%.0f%%  U:%.2f/m]                 \n",
+			cgpu->is_gpu? "G" : "C", cgpu->cpu_gpu, cgpu->total_mhashes / total_secs,
+			getwork_requested, cgpu->accepted, cgpu->rejected, cgpu->hw_errors,
+			efficiency, utility);
 	}
-	applog(LOG_INFO, "%sPU: %d  Accepted: %d  Rejected: %d  HW errors: %d",
-	       cgpu->is_gpu? "G" : "C", cgpu->cpu_gpu, cgpu->accepted, cgpu->rejected, cgpu->hw_errors);
+	applog(LOG_INFO, "%sPU %d  Requested:%d  Accepted:%d  Rejected:%d  HW errors:%d  Efficiency:%.0f%%  Utility:%.2f/m",
+	       cgpu->is_gpu? "G" : "C", cgpu->cpu_gpu, getwork_requested, cgpu->accepted, cgpu->rejected, cgpu->hw_errors, efficiency, utility
+           );
 
 	json_decref(val);
 
@@ -821,6 +831,7 @@ static void hashmeter(int thr_id, struct timeval *diff,
 	struct timeval temp_tv_end, total_diff;
 	double khashes, secs;
 	double local_secs;
+	double utility, efficiency = 0.0;
 	static double local_mhashes_done = 0;
 	static double rolling_local = 0;
 	double local_mhashes = (double)hashes_done / 1000000.0;
@@ -862,13 +873,18 @@ static void hashmeter(int thr_id, struct timeval *diff,
 	timeval_subtract(&total_diff, &total_tv_end, &total_tv_start);
 	total_secs = (double)total_diff.tv_sec +
 		((double)total_diff.tv_usec / 1000000.0);
-	printf("[Rate (%ds): %.2f  (avg): %.2f Mhash/s] [Accepted: %d  Rejected: %d  HW errors: %d]          \r",
-	       opt_log_interval, rolling_local / local_secs, total_mhashes_done / total_secs,
-		accepted, rejected, hw_errors);
+
+	utility = accepted / ( total_secs ? total_secs : 1 ) * 60;
+	efficiency = getwork_requested ? accepted * 100.0 / getwork_requested : 0.0;
+
+	printf("[(%ds):%.1f  (avg):%.1f Mh/s] [Q:%d  A:%d  R:%d  HW:%d  E:%.0f%%  U:%.2f/m]\r",
+		opt_log_interval, rolling_local / local_secs, total_mhashes_done / total_secs,
+		getwork_requested, accepted, rejected, hw_errors, efficiency, utility);
 	fflush(stdout);
-	applog(LOG_INFO, "[Rate (%ds): %.2f  (avg): %.2f Mhash/s] [Accepted: %d  Rejected: %d  HW errors: %d]",
-	       opt_log_interval, rolling_local / local_secs, total_mhashes_done / total_secs,
-		accepted, rejected, hw_errors);
+	applog(LOG_INFO, "[Rate (%ds):%.1f  (avg):%.2f Mhash/s] [Requested:%d  Accepted:%d  Rejected:%d  HW errors:%d  Efficiency:%.0f%%  Utility:%.2f/m]",
+		opt_log_interval, rolling_local / local_secs, total_mhashes_done / total_secs,
+		getwork_requested, accepted, rejected, hw_errors, efficiency, utility);
+
 	local_mhashes_done = 0;
 out_unlock:
 	pthread_mutex_unlock(&hash_lock);
@@ -1346,6 +1362,8 @@ static void *gpuminer_thread(void *userdata)
 			}
 			work->thr_id = thr_id;
 			requested = false;
+
+			getwork_requested++;
 
 			precalc_hash(&work->blk, (uint32_t *)(work->midstate), (uint32_t *)(work->data + 64));
 			work->blk.nonce = 0;
