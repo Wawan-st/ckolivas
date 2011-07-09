@@ -122,7 +122,7 @@ static int opt_retries = -1;
 static int opt_fail_pause = 5;
 static int opt_log_interval = 5;
 bool opt_log_output = false;
-static int opt_queue = 0;
+static int opt_queue = 1;
 int opt_vectors;
 int opt_worksize;
 int opt_scantime = 60;
@@ -150,11 +150,13 @@ struct work_restart *work_restart = NULL;
 pthread_mutex_t time_lock;
 static pthread_mutex_t hash_lock;
 static pthread_mutex_t qd_lock;
+static pthread_mutex_t stgd_lock;
 static double total_mhashes_done;
 static struct timeval total_tv_start, total_tv_end;
 static int accepted, rejected;
 int hw_errors;
-static int total_queued;
+static int total_queued, total_staged, lp_staged;
+static bool localgen = false;
 static unsigned int getwork_requested = 0;
 static char current_block[37];
 static char longpoll_block[37];
@@ -220,6 +222,11 @@ static char *force_nthreads_int(const char *arg, int *i)
 static char *set_int_0_to_10(const char *arg, int *i)
 {
 	return set_int_range(arg, i, 0, 10);
+}
+
+static char *set_int_1_to_10(const char *arg, int *i)
+{
+	return set_int_range(arg, i, 1, 10);
 }
 
 static char *set_url(const char *arg, char **p)
@@ -299,8 +306,8 @@ static struct opt_table opt_config_table[] = {
 			opt_set_bool, &opt_protocol,
 			"Verbose dump of protocol-level activities"),
 	OPT_WITH_ARG("--queue|-Q",
-		     set_int_0_to_9999, opt_show_intval, &opt_queue,
-		     "Number of extra work items to queue"),
+		     set_int_1_to_10, opt_show_intval, &opt_queue,
+		     "Number of extra work items to queue (1 - 10)"),
 	OPT_WITHOUT_ARG("--quiet|-q",
 			opt_set_bool, &opt_quiet,
 			"Disable per-thread hashmeter output"),
@@ -480,6 +487,13 @@ err_out:
 }
 
 static double total_secs;
+static char statusline[256];
+
+static inline void print_status(void)
+{
+	printf("%s\r", statusline);
+	fflush(stdout);
+}
 
 static bool submit_upstream_work(const struct work *work)
 {
@@ -547,6 +561,7 @@ static bool submit_upstream_work(const struct work *work)
 			cgpu->is_gpu? "G" : "C", cgpu->cpu_gpu, cgpu->total_mhashes / total_secs,
 			getwork_requested, cgpu->accepted, cgpu->rejected, cgpu->hw_errors,
 			efficiency, utility);
+		print_status();
 	}
 	applog(LOG_INFO, "%sPU %d  Requested:%d  Accepted:%d  Rejected:%d  HW errors:%d  Efficiency:%.0f%%  Utility:%.2f/m",
 	       cgpu->is_gpu? "G" : "C", cgpu->cpu_gpu, getwork_requested, cgpu->accepted, cgpu->rejected, cgpu->hw_errors, efficiency, utility
@@ -579,7 +594,7 @@ static bool get_upstream_work(struct work *work)
 	val = json_rpc_call(curl, rpc_url, rpc_userpass, rpc_req,
 			    want_longpoll, false);
 	if (unlikely(!val)) {
-		applog(LOG_ERR, "Failed json_rpc_call in get_upstream_work");
+		applog(LOG_DEBUG, "Failed json_rpc_call in get_upstream_work");
 		goto out;
 	}
 
@@ -654,7 +669,7 @@ static void *get_work_thread(void *userdata)
 		}
 
 		/* pause, then restart work-request loop */
-		applog(LOG_ERR, "json_rpc_call failed on get work, retry after %d seconds",
+		applog(LOG_DEBUG, "json_rpc_call failed on get work, retry after %d seconds",
 			opt_fail_pause);
 		sleep(opt_fail_pause);
 	}
@@ -735,6 +750,34 @@ static bool workio_submit_work(struct workio_cmd *wc)
 	return true;
 }
 
+static void inc_staged(int inc, bool lp)
+{
+	pthread_mutex_lock(&stgd_lock);
+	total_staged += inc;
+	if (lp)
+		lp_staged += inc;
+	pthread_mutex_unlock(&stgd_lock);
+}
+
+static void dec_staged(int inc)
+{
+	pthread_mutex_lock(&stgd_lock);
+	if (lp_staged)
+		lp_staged -= inc;
+	total_staged -= inc;
+	pthread_mutex_unlock(&stgd_lock);
+}
+
+static int requests_staged(void)
+{
+	int ret;
+
+	pthread_mutex_lock(&stgd_lock);
+	ret = total_staged;
+	pthread_mutex_unlock(&stgd_lock);
+	return ret;
+}
+
 static void *stage_thread(void *userdata)
 {
 	struct thr_info *mythr = userdata;
@@ -785,6 +828,7 @@ static void *stage_thread(void *userdata)
 			ok = false;
 			break;
 		}
+		inc_staged(1, false);
 	}
 
 	tq_freeze(mythr->q);
@@ -879,10 +923,10 @@ static void hashmeter(int thr_id, struct timeval *diff,
 	utility = accepted / ( total_secs ? total_secs : 1 ) * 60;
 	efficiency = getwork_requested ? accepted * 100.0 / getwork_requested : 0.0;
 
-	printf("[(%ds):%.1f  (avg):%.1f Mh/s] [Q:%d  A:%d  R:%d  HW:%d  E:%.0f%%  U:%.2f/m]\r",
+	sprintf(statusline, "[(%ds):%.1f  (avg):%.1f Mh/s] [Q:%d  A:%d  R:%d  HW:%d  E:%.0f%%  U:%.2f/m]          ",
 		opt_log_interval, rolling_local / local_secs, total_mhashes_done / total_secs,
 		getwork_requested, accepted, rejected, hw_errors, efficiency, utility);
-	fflush(stdout);
+	print_status();
 	applog(LOG_INFO, "[Rate (%ds):%.1f  (avg):%.2f Mhash/s] [Requested:%d  Accepted:%d  Rejected:%d  HW errors:%d  Efficiency:%.0f%%  Utility:%.2f/m]",
 		opt_log_interval, rolling_local / local_secs, total_mhashes_done / total_secs,
 		getwork_requested, accepted, rejected, hw_errors, efficiency, utility);
@@ -906,6 +950,7 @@ static void dec_queued(void)
 	pthread_mutex_lock(&qd_lock);
 	total_queued--;
 	pthread_mutex_unlock(&qd_lock);
+	dec_staged(1);
 }
 
 static int requests_queued(void)
@@ -979,6 +1024,10 @@ static void flush_requests(bool longpoll)
 	else
 		extra--;
 
+	/* Temporarily increase the staged count so that get_work thinks there
+	 * is work available instead of making threads reuse existing work */
+	inc_staged(extra, true);
+
 	for (i = 0; i < extra; i++) {
 		/* Queue a whole batch of new requests */
 		if (unlikely(!queue_request())) {
@@ -1009,6 +1058,25 @@ retry:
 		goto out;
 	}
 
+	if (!requests_staged()) {
+		uint32_t *work_ntime;
+		uint32_t ntime;
+
+		/* Only print this message once each time we shift to localgen */
+		if (!localgen)
+			applog(LOG_WARNING, "Server not providing work fast enough, generating work locally");
+		localgen = true;
+		work_ntime = (uint32_t *)(work->data + 68);
+		ntime = be32toh(*work_ntime);
+		ntime++;
+		*work_ntime = htobe32(ntime);
+		ret = true;
+		goto out;
+	} else if (localgen) {
+		localgen = false;
+		applog(LOG_WARNING, "Resumed retrieving work from server");
+	}
+
 	/* wait for 1st response, or get cached response */
 	work_heap = tq_pop(thr->q, NULL);
 	if (unlikely(!work_heap)) {
@@ -1027,7 +1095,7 @@ out:
 			applog(LOG_ERR, "Failed %d times to get_work");
 			return ret;
 		}
-		applog(LOG_WARNING, "Retrying after %d seconds", opt_fail_pause);
+		applog(LOG_DEBUG, "Retrying after %d seconds", opt_fail_pause);
 		sleep(opt_fail_pause);
 		goto retry;
 	}
@@ -1506,7 +1574,7 @@ static void *longpoll_thread(void *userdata)
 		} else {
 			if (failures++ < 10) {
 				sleep(30);
-				applog(LOG_ERR,
+				applog(LOG_WARNING,
 					"longpoll failed, sleeping for 30s");
 			} else {
 				applog(LOG_ERR,
@@ -1537,6 +1605,8 @@ static void *wakeup_thread(void *userdata)
 
 	while (1) {
 		sleep(interval);
+		if (requests_queued() < opt_queue)
+			queue_request();
 		hashmeter(-1, &zero_tv, 0);
 		if (unlikely(work_restart[stage_thr_id].restart)) {
 			restart_threads(false);
@@ -1607,6 +1677,15 @@ int main (int argc, char *argv[])
 			return 1;
 		sprintf(rpc_userpass, "%s:%s", rpc_user, rpc_pass);
 	}
+
+	if (unlikely(pthread_mutex_init(&time_lock, NULL)))
+		return 1;
+	if (unlikely(pthread_mutex_init(&hash_lock, NULL)))
+		return 1;
+	if (unlikely(pthread_mutex_init(&qd_lock, NULL)))
+		return 1;
+	if (unlikely(pthread_mutex_init(&stgd_lock, NULL)))
+		return 1;
 
 	if (unlikely(curl_global_init(CURL_GLOBAL_ALL)))
 		return 1;
