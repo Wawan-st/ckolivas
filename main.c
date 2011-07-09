@@ -1623,6 +1623,13 @@ int main (int argc, char *argv[])
 	unsigned int i;
 	char name[32];
 	struct cgpu_info *gpus = NULL, *cpus = NULL;
+	
+	if (unlikely(pthread_mutex_init(&time_lock, NULL)))
+		return 1;
+	if (unlikely(pthread_mutex_init(&hash_lock, NULL)))
+		return 1;
+	if (unlikely(pthread_mutex_init(&qd_lock, NULL)))
+		return 1;
 
 #ifdef WIN32
 	opt_n_threads = num_processors = 1;
