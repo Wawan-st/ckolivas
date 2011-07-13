@@ -24,6 +24,8 @@ typedef unsigned long int ulong;
 typedef unsigned short int ushort;
 typedef unsigned int uint;
 
+typedef long suseconds_t;
+
 #endif /* WIN32 */
 
 #endif /* __COMPAT_H__ */
