@@ -239,6 +239,7 @@ extern bool fulltest(const unsigned char *hash, const unsigned char *target);
 extern int opt_scantime;
 extern bool want_longpoll;
 extern bool have_longpoll;
+extern bool lp_forcepost;
 struct thread_q;
 
 struct work_restart {

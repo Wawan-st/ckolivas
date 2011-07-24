@@ -142,6 +142,7 @@ bool opt_debug = false;
 bool opt_protocol = false;
 bool want_longpoll = true;
 bool have_longpoll = false;
+bool lp_forcepost = false;
 bool use_syslog = false;
 static bool opt_quiet = false;
 static bool opt_loginput = false;
@@ -502,6 +503,11 @@ static struct opt_table opt_config_table[] = {
 	OPT_WITH_ARG("--device|-d",
 		     set_devices, NULL, &opt_device,
 	             "Select device to use, (Use repeat -d for multiple devices, default: all)"),
+#endif
+	OPT_WITHOUT_ARG("--lp-force-post",
+			opt_set_bool, &lp_forcepost,
+			"Force using HTTP POST method for long-polling connections"),
+#ifdef HAVE_OPENCL
 	OPT_WITH_ARG("--gpu-threads|-g",
 		     set_int_0_to_10, opt_show_intval, &opt_g_threads,
 		     "Number of threads per GPU (0 - 10)"),
