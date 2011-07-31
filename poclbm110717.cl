@@ -69,7 +69,27 @@ __constant uint K[64] = {
 // problems. (this is used 4 times, and likely optimized out by the compiler.)
 #define Ma2(x, y, z) ((y & z) | (x & (y | z)))
 
-__kernel void search(	const uint state0, const uint state1, const uint state2, const uint state3,
+#define WORKSIZEXXX
+__kernel
+// Compiler hint about preferred work group size
+#ifdef WORKSIZE64
+	__attribute__((work_group_size_hint(64,1,1)))
+#elif WORKSIZE128
+	__attribute__((work_group_size_hint(128,1,1)))
+#elif WORKSIZE256
+	__attribute__((work_group_size_hint(256,1,1)))
+#endif
+
+// Compiler hint about the common vectorization, to enhance
+// the compiler's autovectorization
+#ifdef VECTORS4
+	__attribute__((vec_type_hint(uint4)))
+#elif defined VECTORS2
+	__attribute__((vec_type_hint(uint2)))
+#else
+	__attribute__((vec_type_hint(uint)))
+#endif
+				void search(	const uint state0, const uint state1, const uint state2, const uint state3,
 						const uint state4, const uint state5, const uint state6, const uint state7,
 						const uint b1, const uint c1, const uint d1,
 						const uint f1, const uint g1, const uint h1,
