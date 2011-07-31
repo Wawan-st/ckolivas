@@ -514,6 +514,26 @@ build:
 			applog(LOG_DEBUG, "Patched source to suit %d vectors", clState->preferred_vwidth);
 	}
 
+	/* Provide compiler hint for requested worksize */
+	if (clState->work_size) {
+		char *find = strstr(source, "WORKSIZEXXX");
+
+		if (unlikely(!find)) {
+			applog(LOG_ERR, "Unable to find WORKSIZEX in source");
+			return NULL;
+		}
+		find += 9; // "WORKSIZE"
+		if(clState->work_size == 64)
+			strncpy(find, "64 ", 1);
+		else if(clState->work_size == 128)
+			strncpy(find, "128", 1);
+		else if(clState->work_size == 256)
+			strncpy(find, "256", 1);
+
+		if (opt_debug)
+			applog(LOG_DEBUG, "Patched source with worksize %d hint", clState->work_size);
+	}
+
 	/* Patch the source file defining BITALIGN */
 	if (clState->hasBitAlign) {
 		char *find = strstr(source, "BITALIGNX");

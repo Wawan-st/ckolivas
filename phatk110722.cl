@@ -77,7 +77,29 @@ __constant ulong L = 0x198c7e2a2;
 #define sharound(n) { Vals[(131 - n) % 8] += t1(n); Vals[(135 - n) % 8] = t1(n) + s0(n) + ma(n); }
 #define sharound_no_W(n) { Vals[(131 - n) % 8] += t1_no_W(n); Vals[(135 - n) % 8] = t1_no_W(n) + s0(n) + ma(n); }
 
-__kernel void search(	const uint state0, const uint state1, const uint state2, const uint state3,
+#define WORKSIZEXXX
+
+__kernel
+
+// Compiler hint about preferred work group size
+#ifdef WORKSIZE64
+	__attribute__((work_group_size_hint(64,1,1)))
+#elif WORKSIZE128
+	__attribute__((work_group_size_hint(128,1,1)))
+#elif WORKSIZE256
+	__attribute__((work_group_size_hint(256,1,1)))
+#endif
+
+// Compiler hint about the common vectorization, to enhance the compiler's
+// autovectorization
+#ifdef VECTORS4
+	__attribute__((vec_type_hint(uint4)))
+#elif defined VECTORS2
+	__attribute__((vec_type_hint(uint2)))
+#else
+	__attribute__((vec_type_hint(uint)))
+#endif
+				void search(	const uint state0, const uint state1, const uint state2, const uint state3,
 						const uint state4, const uint state5, const uint state6, const uint state7,
 						const uint B1, const uint C1, const uint C1addK5, const uint D1,
 						const uint F1, const uint G1, const uint H1,
