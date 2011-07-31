@@ -113,7 +113,7 @@ void precalc_hash(dev_blk_ctx *blk, uint32_t *state, uint32_t *data) {
 	blk->T1 = blk->fcty_e2 = (rotr(F, 2) ^ rotr(F, 13) ^ rotr(F, 22)) + ((F & G) | (H & (F | G)));
 
 	blk->PreVal4addT1 = blk->PreVal4 + blk->T1;
-	blk->T1substate0 = state[0] - blk->T1;
+	blk->T1substate0 = state[0] + blk->PreVal4;
 }
 
 #define P(t) (W[(t)&0xF] = W[(t-16)&0xF] + (rotate(W[(t-15)&0xF], 25) ^ rotate(W[(t-15)&0xF], 14) ^ (W[(t-15)&0xF] >> 3)) + W[(t-7)&0xF] + (rotate(W[(t-2)&0xF], 15) ^ rotate(W[(t-2)&0xF], 13) ^ (W[(t-2)&0xF] >> 10)))

@@ -120,7 +120,7 @@ __kernel
 #endif
 	u Temp;
 	
-	Vals[0] = W_3 + PreVal4addT1 + T1substate0;
+	Vals[0] = W_3 + T1substate0;
 	Vals[1] = B1;
 	Vals[2] = C1;
 
