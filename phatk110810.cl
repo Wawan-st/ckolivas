@@ -402,29 +402,18 @@ __kernel
 #define MAXBUFFERS (4095)
 #define NFLAG (0xFFFUL)
 
-#if defined(VECTORS4) || defined(VECTORS2)
-	if (Vals[7].x == -H[7])
-	{
-		output[NFLAG & (W[3].x >> 2)] = output[MAXBUFFERS] = W_3.x;
-	}
-	if (Vals[7].y == -H[7])
-	{
-		output[NFLAG & (W[3].y >> 2)] = output[MAXBUFFERS] = W_3.y;
-	}
-#ifdef VECTORS4
-        if (Vals[7].z == -H[7])
-	{
-		output[NFLAG & (W[3].z >> 2)] = output[MAXBUFFERS] = W_3.z;
-	}
-	if (Vals[7].w == -H[7])
-	{
-		output[NFLAG & (W[3].w >> 2)] = output[MAXBUFFERS] = W_3.w;
-	}
-#endif
+#if defined VECTORS2
+	u result = (uint2){(Vals[7].x == -H[7]), (Vals[7].y == -H[7])};
+	output[NFLAG & ((result.x * W_3.x) >> 2)] = output[MAXBUFFERS * result.x] = result.x * W_3.x;
+	output[NFLAG & ((result.y * W_3.y) >> 2)] = output[MAXBUFFERS * result.y] = result.y * W_3.y;
+#elif defined VECTORS4
+	u result = (uint4){(Vals[7].x == -H[7]), (Vals[7].y == -H[7]), (Vals[7].z == -H[7]), (Vals[7].w == -H[7])};
+	output[NFLAG & ((result.x * W_3.x) >> 2)] = output[MAXBUFFERS * result.x] = result.x * W_3.x;
+	output[NFLAG & ((result.y * W_3.y) >> 2)] = output[MAXBUFFERS * result.y] = result.y * W_3.y;
+	output[NFLAG & ((result.z * W_3.z) >> 2)] = output[MAXBUFFERS * result.z] = result.x * W_3.z;
+	output[NFLAG & ((result.w * W_3.w) >> 2)] = output[MAXBUFFERS * result.w] = result.w * W_3.w;
 #else
-	if (Vals[7] == -H[7])
-	{
-		output[NFLAG & (W[3] >> 2)] = output[MAXBUFFERS] = W_3;
-	}
+	u result = (Vals[7] == -H[7]);
+	output[NFLAG & ((result * W_3) >> 2)] = output[MAXBUFFERS * result] = result * W_3;
 #endif
 }
