@@ -5,9 +5,6 @@
 // This file is taken and modified from the public-domain poclbm project, and
 // we have therefore decided to keep it public-domain in Phoenix.
 
-// The X is a placeholder for patching to suit hardware
-#define VECTORSX
-
 #ifdef VECTORS4
 	typedef uint4 u;
 #elif defined VECTORS2
@@ -36,9 +33,6 @@ __constant uint K[64] = {
 // detected, use it for ch. Otherwise, construct ch out of simpler logical
 // primitives.
 
-#define BFI_INTX
-#define BITALIGNX
-
 #ifdef BFI_INT
 	// Well, slight problem... It turns out BFI_INT isn't actually exposed to
 	// OpenCL (or CAL IL for that matter) in any way. However, there is 
@@ -51,11 +45,14 @@ __constant uint K[64] = {
 	#define ch(x, y, z) amd_bytealign(x, y, z)
 	
 	// Ma can also be implemented in terms of BFI_INT...
-	#define Ma(x, y, z) amd_bytealign( (z^x), (y), (x) )
+	//#define Ma(x, y, z) amd_bytealign( (z^x), (y), (x) )
 #else
-	#define ch(x, y, z) (z ^ (x & (y ^ z)))
-	#define Ma(x, y, z) ((x & z) | (y & (x | z)))
+	#define ch(x, y, z) bitselect(z, y, x)
+	//(z ^ (x & (y ^ z)))
+	//#define Ma(x, y, z) ((x & z) | (y & (x | z)))
 #endif
+// Ma can be defined in terms of Ch
+#define Ma(x, y, z) ch((z ^ x), y, x)
 
 #ifdef BITALIGN
 	#pragma OPENCL EXTENSION cl_amd_media_ops : enable
@@ -67,9 +64,13 @@ __constant uint K[64] = {
 // AMD's KernelAnalyzer throws errors compiling the kernel if we use 
 // amd_bytealign on constants with vectors enabled, so we use this to avoid 
 // problems. (this is used 4 times, and likely optimized out by the compiler.)
-#define Ma2(x, y, z) ((y & z) | (x & (y | z)))
+//#define Ma2(x, y, z) ((y & z) | (x & (y | z)))
+#define Ma2(x, y, z) Ma(x, y, z)
 
-__kernel void search(	const uint state0, const uint state1, const uint state2, const uint state3,
+__kernel 
+        __attribute__((reqd_work_group_size(WORKSIZE,1,1)))
+	__attribute__((vec_type_hint(u)))
+		void search(	const uint state0, const uint state1, const uint state2, const uint state3,
 						const uint state4, const uint state5, const uint state6, const uint state7,
 						const uint b1, const uint c1, const uint d1,
 						const uint f1, const uint g1, const uint h1,
@@ -77,8 +78,8 @@ __kernel void search(	const uint state0, const uint state1, const uint state2, c
 						const uint fw0, const uint fw1, const uint fw2, const uint fw3, const uint fw15, const uint fw01r, const uint fcty_e, const uint fcty_e2,
 						__global uint * output)
 {
-	u W[24];
-	u Vals[8];
+	__local u W[24];
+	__local u Vals[8];
 	u nonce;
 
 #ifdef VECTORS4
@@ -95,10 +96,10 @@ __kernel void search(	const uint state0, const uint state1, const uint state2, c
 	Vals[4] = Vals[4] + fcty_e2;
 	Vals[3] = d1 + (rotr(Vals[0], 6) ^ rotr(Vals[0], 11) ^ rotr(Vals[0], 25)) + ch(Vals[0], b1, c1) + K[ 4] +  0x80000000;
 	Vals[7] = h1 + Vals[3];
-	Vals[3] = Vals[3] + (rotr(Vals[4], 2) ^ rotr(Vals[4], 13) ^ rotr(Vals[4], 22)) + Ma2(g1, Vals[4], f1);
+	Vals[3] = Vals[3] + (rotr(Vals[4], 2) ^ rotr(Vals[4], 13) ^ rotr(Vals[4], 22)) + Ma2((u)g1, Vals[4], (u)f1);
 	Vals[2] = c1 + (rotr(Vals[7], 6) ^ rotr(Vals[7], 11) ^ rotr(Vals[7], 25)) + ch(Vals[7], Vals[0], b1) + K[ 5];
 	Vals[6] = g1 + Vals[2];
-	Vals[2] = Vals[2] + (rotr(Vals[3], 2) ^ rotr(Vals[3], 13) ^ rotr(Vals[3], 22)) + Ma2(f1, Vals[3], Vals[4]);
+	Vals[2] = Vals[2] + (rotr(Vals[3], 2) ^ rotr(Vals[3], 13) ^ rotr(Vals[3], 22)) + Ma2((u)f1, Vals[3], Vals[4]);
 	Vals[1] = b1 + (rotr(Vals[6], 6) ^ rotr(Vals[6], 11) ^ rotr(Vals[6], 25)) + ch(Vals[6], Vals[7], Vals[0]) + K[ 6];
 	Vals[5] = f1 + Vals[1];
 	Vals[1] = Vals[1] + (rotr(Vals[2], 2) ^ rotr(Vals[2], 13) ^ rotr(Vals[2], 22)) + Ma(Vals[4], Vals[2], Vals[3]);
@@ -370,10 +371,10 @@ __kernel void search(	const uint state0, const uint state1, const uint state2, c
 	Vals[7] = Vals[7] + 0x08909ae5U;
 	Vals[6] = 0x1f83d9abU + (rotr(Vals[3], 6) ^ rotr(Vals[3], 11) ^ rotr(Vals[3], 25)) + (0x9b05688cU ^ (Vals[3] & 0xca0b3af3U)) + K[ 1] +  W[1];
 	Vals[2] = 0x3c6ef372U + Vals[6];
-	Vals[6] = Vals[6] + (rotr(Vals[7], 2) ^ rotr(Vals[7], 13) ^ rotr(Vals[7], 22)) +  Ma2(0xbb67ae85U, Vals[7], 0x6a09e667U);
+	Vals[6] = Vals[6] + (rotr(Vals[7], 2) ^ rotr(Vals[7], 13) ^ rotr(Vals[7], 22)) +  Ma2((u)0xbb67ae85U, Vals[7], (u)0x6a09e667U);
 	Vals[5] = 0x9b05688cU + (rotr(Vals[2], 6) ^ rotr(Vals[2], 11) ^ rotr(Vals[2], 25)) + ch(Vals[2], Vals[3], 0x510e527fU) + K[ 2] +  W[2];
 	Vals[1] = 0xbb67ae85U + Vals[5];
-	Vals[5] = Vals[5] + (rotr(Vals[6], 2) ^ rotr(Vals[6], 13) ^ rotr(Vals[6], 22)) + Ma2(0x6a09e667U, Vals[6], Vals[7]);
+	Vals[5] = Vals[5] + (rotr(Vals[6], 2) ^ rotr(Vals[6], 13) ^ rotr(Vals[6], 22)) + Ma2((u)0x6a09e667U, Vals[6], Vals[7]);
 	Vals[4] = 0x510e527fU + (rotr(Vals[1], 6) ^ rotr(Vals[1], 11) ^ rotr(Vals[1], 25)) + ch(Vals[1], Vals[2], Vals[3]) + K[ 3] +  W[3];
 	Vals[0] = 0x6a09e667U + Vals[4];
 	Vals[4] = Vals[4] + (rotr(Vals[5], 2) ^ rotr(Vals[5], 13) ^ rotr(Vals[5], 22)) + Ma(Vals[7], Vals[5], Vals[6]);
@@ -625,32 +626,32 @@ __kernel void search(	const uint state0, const uint state1, const uint state2, c
 	
 	Vals[7] = Vals[7] + Vals[3] + (rotr(Vals[0], 6) ^ rotr(Vals[0], 11) ^ rotr(Vals[0], 25)) + ch(Vals[0], Vals[1], Vals[2]) + K[60] + W[12];
 
-	Vals[7]+=0x5be0cd19U;
+//	Vals[7]+=0x5be0cd19U;
 
 #define MAXBUFFERS (4095)
 #define NFLAG (0xFFEUL)
 
 #if defined(VECTORS4) || defined(VECTORS2)
-	if (Vals[7].x == 0)
+	if (Vals[7].x == 0 - 0x5be0cd19U)
 	{
 		output[MAXBUFFERS] = output[NFLAG & nonce.x] =  nonce.x;
 	}
-	if (Vals[7].y == 0)
+	if (Vals[7].y == 0 - 0x5be0cd19U)
 	{
 		output[MAXBUFFERS] = output[NFLAG & nonce.y] =  nonce.y;
 	}
 #ifdef VECTORS4
-	if (Vals[7].z == 0)
+	if (Vals[7].z == 0 - 0x5be0cd19U)
 	{
 		output[MAXBUFFERS] = output[NFLAG & nonce.z] =  nonce.z;
 	}
-	if (Vals[7].w == 0)
+	if (Vals[7].w == 0 - 0x5be0cd19U)
 	{
 		output[MAXBUFFERS] = output[NFLAG & nonce.w] =  nonce.w;
 	}
 #endif
 #else
-	if (Vals[7] == 0)
+	if (Vals[7] == 0 - 0x5be0cd19U)
 	{
 		output[MAXBUFFERS] = output[NFLAG & nonce] =  nonce;
 	}
