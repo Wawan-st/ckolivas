@@ -263,7 +263,6 @@ static char datestamp[40];
 static char blocktime[30];
 
 static char *opt_kernel = NULL;
-static char *opt_stderr_cmd = NULL;
 
 #if defined(unix)
 	static char *opt_stderr_cmd = NULL;
@@ -1653,15 +1652,6 @@ out:
 	curl_easy_cleanup(curl);
 
 	return rc;
-}
-
-static struct work *make_work(void)
-{
-	struct work *work = calloc(1, sizeof(struct work));
-
-	if (unlikely(!work))
-		quit(1, "Failed to calloc work in make_work");
-	return work;
 }
 
 static void free_work(struct work *work)
