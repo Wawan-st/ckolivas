@@ -34,7 +34,16 @@
 #include "compat.h"
 #include "miner.h"
 #include "findnonce.h"
+#include "bench_block.h"
 #include "ocl.h"
+
+#if defined(unix)
+	#include <errno.h>
+	#include <fcntl.h>
+	#include <unistd.h>
+	#include <sys/wait.h>
+	#include <sys/types.h>
+#endif
 
 #define PROGRAM_NAME		"cgminer"
 #define DEF_RPC_URL		"http://127.0.0.1:8332/"
@@ -118,6 +127,8 @@ struct strategies {
 	{ "Load Balance" },
 };
 
+static size_t max_name_len = 0;
+static char *name_spaces_pad = NULL;
 static const char *algo_names[] = {
 	[ALGO_C]		= "c",
 #ifdef WANT_SSE2_4WAY
@@ -138,6 +149,27 @@ static const char *algo_names[] = {
 #endif
 };
 
+typedef void (*sha256_func)();
+static const sha256_func sha256_funcs[] = {
+	[ALGO_C]		= (sha256_func)scanhash_c,
+#ifdef WANT_SSE2_4WAY
+	[ALGO_4WAY]		= (sha256_func)ScanHash_4WaySSE2,
+#endif
+#ifdef WANT_VIA_PADLOCK
+	[ALGO_VIA]		= (sha256_func)scanhash_via,
+#endif
+	[ALGO_CRYPTOPP]		=  (sha256_func)scanhash_cryptopp,
+#ifdef WANT_CRYPTOPP_ASM32
+	[ALGO_CRYPTOPP_ASM32]	= (sha256_func)scanhash_asm32,
+#endif
+#ifdef WANT_X8664_SSE2
+	[ALGO_SSE2_64]		= (sha256_func)scanhash_sse2_64,
+#endif
+#ifdef WANT_X8664_SSE4
+	[ALGO_SSE4_64]		= (sha256_func)scanhash_sse4_64
+#endif
+};
+
 bool opt_debug = false;
 bool opt_protocol = false;
 bool want_longpoll = true;
@@ -155,6 +187,7 @@ static int opt_queue;
 int opt_vectors;
 int opt_worksize;
 int opt_scantime = 60;
+int opt_bench_algo = -1;
 static const bool opt_time = true;
 #if defined(WANT_X8664_SSE4) && defined(__SSE4_1__)
 static enum sha256_algos opt_algo = ALGO_SSE4_64;
@@ -233,7 +266,10 @@ static char datestamp[40];
 static char blocktime[30];
 
 static char *opt_kernel = NULL;
-static char *opt_stderr_cmd = NULL;
+
+#if defined(unix)
+	static char *opt_stderr_cmd = NULL;
+#endif // defined(unix)
 
 enum cl_kernel chosen_kernel;
 
@@ -331,10 +367,467 @@ static struct pool *current_pool(void)
 	return pool;
 }
 
+// Algo benchmark, crash-prone, system independent stage
+static double bench_algo_stage3(
+	enum sha256_algos algo
+)
+{
+	// Random work pulled from a pool
+	static uint8_t bench_block[] = { CGMINER_BENCHMARK_BLOCK };
+	struct work work __attribute__((aligned(128)));
+	assert(sizeof(work) <= sizeof(bench_block));
+	memcpy(&work, &bench_block, sizeof(work));
+
+	struct work_restart dummy;
+	work_restart = &dummy;
+
+	struct timeval end;
+	struct timeval start;
+	uint32_t max_nonce = (1<<22);
+	unsigned long hashes_done = 0;
+
+	gettimeofday(&start, 0);
+		#if defined(WANT_VIA_PADLOCK)
+
+			// For some reason, the VIA padlock hasher has a different API ...
+			if (ALGO_VIA==algo) {
+				(void)scanhash_via(
+					0,
+					work.data,
+					work.target,
+					max_nonce,
+					&hashes_done,
+					work.blk.nonce
+				);
+			} else
+		#endif
+			{
+				sha256_func func = sha256_funcs[algo];
+				(*func)(
+					0,
+					work.midstate,
+					work.data + 64,
+					work.hash1,
+					work.hash,
+					work.target,
+					max_nonce,
+					&hashes_done,
+					work.blk.nonce
+				);
+			}
+	gettimeofday(&end, 0);
+	work_restart = NULL;
+
+	uint64_t usec_end = ((uint64_t)end.tv_sec)*1000*1000 + end.tv_usec;
+	uint64_t usec_start = ((uint64_t)start.tv_sec)*1000*1000 + start.tv_usec;
+	uint64_t usec_elapsed = usec_end - usec_start;
+
+	double rate = -1.0;
+	if (0<usec_elapsed) {
+		rate = (1.0*hashes_done)/usec_elapsed;
+	}
+	return rate;
+}
+
+#if defined(unix)
+
+	// Change non-blocking status on a file descriptor
+	static void set_non_blocking(
+		int fd,
+		int yes
+	)
+	{
+		int flags = fcntl(fd, F_GETFL, 0);
+		if (flags<0) {
+			perror("fcntl(GET) failed");
+			exit(1);
+		}
+		flags = yes ? (flags|O_NONBLOCK) : (flags&~O_NONBLOCK);
+
+		int r = fcntl(fd, F_SETFL, flags);
+		if (r<0) {
+			perror("fcntl(SET) failed");
+			exit(1);
+		}
+	}
+
+#endif // defined(unix)
+
+// Algo benchmark, crash-safe, system-dependent stage
+static double bench_algo_stage2(
+	enum sha256_algos algo
+)
+{
+	// Here, the gig is to safely run a piece of code that potentially
+	// crashes. Unfortunately, the Right Way (tm) to do this is rather
+	// heavily platform dependent :(
+
+	double rate = -1.23457;
+
+	#if defined(unix)
+
+		// Make a pipe: [readFD, writeFD]
+		int pfd[2];
+		int r = pipe(pfd);
+		if (r<0) {
+			perror("pipe - failed to create pipe for --algo auto");
+			exit(1);
+		}
+
+		// Make pipe non blocking
+		set_non_blocking(pfd[0], 1);
+		set_non_blocking(pfd[1], 1);
+
+		// Don't allow a crashing child to kill the main process
+		sighandler_t sr0 = signal(SIGPIPE, SIG_IGN);
+		sighandler_t sr1 = signal(SIGPIPE, SIG_IGN);
+		if (SIG_ERR==sr0 || SIG_ERR==sr1) {
+			perror("signal - failed to edit signal mask for --algo auto");
+			exit(1);
+		}
+
+		// Fork a child to do the actual benchmarking
+		pid_t child_pid = fork();
+		if (child_pid<0) {
+			perror("fork - failed to create a child process for --algo auto");
+			exit(1);
+		}
+
+		// Do the dangerous work in the child, knowing we might crash
+		if (0==child_pid) {
+
+			// TODO: some umask trickery to prevent coredumps
+
+			// Benchmark this algorithm
+			double r = bench_algo_stage3(algo);
+
+			// We survived, send result to parent and bail
+			int loop_count = 0;
+			while (1) {
+				ssize_t bytes_written = write(pfd[1], &r, sizeof(r));
+				int try_again = (0==bytes_written || (bytes_written<0 && EAGAIN==errno));
+				int success = (sizeof(r)==(size_t)bytes_written);
+
+				if (success)
+					break;
+
+				if (!try_again) {
+					perror("write - child failed to write benchmark result to pipe");
+					exit(1);
+				}
+
+				if (5<loop_count) {
+					applog(LOG_ERR, "child tried %d times to communicate with parent, giving up", loop_count);
+					exit(1);
+				}
+				++loop_count;
+				sleep(1);
+			}
+			exit(0);
+		}
+
+		// Parent waits for a result from child
+		int loop_count = 0;
+		while (1) {
+
+			// Wait for child to die
+			int status;
+			int r = waitpid(child_pid, &status, WNOHANG);
+			if ((child_pid==r) || (r<0 && ECHILD==errno)) {
+
+				// Child died somehow. Grab result and bail
+				double tmp;
+				ssize_t bytes_read = read(pfd[0], &tmp, sizeof(tmp));
+				if (sizeof(tmp)==(size_t)bytes_read)
+					rate = tmp;
+				break;
+
+			} else if (r<0) {
+				perror("bench_algo: waitpid failed. giving up.");
+				exit(1);
+			}
+
+			// Give up on child after a ~60s
+			if (60<loop_count) {
+				kill(child_pid, SIGKILL);
+				waitpid(child_pid, &status, 0);
+				break;
+			}
+
+			// Wait a bit longer
+			++loop_count;
+			sleep(1);
+		}
+
+		// Close pipe
+		r = close(pfd[0]);
+		if (r<0) {
+			perror("close - failed to close read end of pipe for --algo auto");
+			exit(1);
+		}
+		r = close(pfd[1]);
+		if (r<0) {
+			perror("close - failed to close read end of pipe for --algo auto");
+			exit(1);
+		}
+
+	#elif defined(WIN32)
+
+		// Get handle to current exe
+		HINSTANCE module = GetModuleHandle(0);
+		if (!module) {
+			applog(LOG_ERR, "failed to retrieve module handle");
+			exit(1);
+		}
+
+		// Create a unique name
+		char unique_name[32];
+		snprintf(
+			unique_name,
+			sizeof(unique_name)-1,
+			"cgminer-%p",
+			(void*)module
+		);
+
+		// Create and init a chunked of shared memory
+		HANDLE map_handle = CreateFileMapping( 
+			INVALID_HANDLE_VALUE,   // use paging file
+			NULL,                   // default security attributes
+			PAGE_READWRITE,         // read/write access
+			0,                      // size: high 32-bits
+			4096,			// size: low 32-bits
+			unique_name		// name of map object
+		);
+		if (NULL==map_handle) {
+			applog(LOG_ERR, "could not create shared memory");
+			exit(1);
+		}
+
+		void *shared_mem = MapViewOfFile( 
+			map_handle,	// object to map view of
+			FILE_MAP_WRITE, // read/write access
+			0,              // high offset:  map from
+			0,              // low offset:   beginning
+			0		// default: map entire file
+		);
+		if (NULL==shared_mem) {
+			applog(LOG_ERR, "could not map shared memory");
+			exit(1);
+		}
+		SetEnvironmentVariable("CGMINER_SHARED_MEM", unique_name);
+		CopyMemory(shared_mem, &rate, sizeof(rate));
+
+		// Get path to current exe
+		char cmd_line[256 + MAX_PATH];
+		const size_t n = sizeof(cmd_line)-200;
+		DWORD size = GetModuleFileName(module, cmd_line, n);
+		if (0==size) {
+			applog(LOG_ERR, "failed to retrieve module path");
+			exit(1);
+		}
+
+		// Construct new command line based on that
+		char *p = strlen(cmd_line) + cmd_line;
+		sprintf(p, " --bench-algo %d", algo);
+		SetEnvironmentVariable("CGMINER_BENCH_ALGO", "1");
+
+		// Launch a debug copy of cgminer
+		STARTUPINFO startup_info;
+		PROCESS_INFORMATION process_info;
+		ZeroMemory(&startup_info, sizeof(startup_info));
+		ZeroMemory(&process_info, sizeof(process_info));
+		startup_info.cb = sizeof(startup_info);
+
+		BOOL ok = CreateProcess(
+			NULL,			// No module name (use command line)
+			cmd_line,		// Command line
+			NULL,			// Process handle not inheritable
+			NULL,			// Thread handle not inheritable
+			FALSE,			// Set handle inheritance to FALSE
+			DEBUG_ONLY_THIS_PROCESS,// We're going to debug the child
+			NULL,			// Use parent's environment block
+			NULL,			// Use parent's starting directory 
+			&startup_info,		// Pointer to STARTUPINFO structure
+			&process_info		// Pointer to PROCESS_INFORMATION structure
+		);
+		if (!ok) {
+			applog(LOG_ERR, "CreateProcess failed with error %d\n", GetLastError() );
+			exit(1);
+		}
+
+		// Debug the child (only clean way to catch exceptions)
+		while (1) {
+
+			// Wait for child to do something
+			DEBUG_EVENT debug_event;
+			ZeroMemory(&debug_event, sizeof(debug_event));
+
+			BOOL ok = WaitForDebugEvent(&debug_event, 60 * 1000);
+			if (!ok)
+				break;
+
+			// Decide if event is "normal"
+			int go_on =
+				CREATE_PROCESS_DEBUG_EVENT== debug_event.dwDebugEventCode	||
+				CREATE_THREAD_DEBUG_EVENT == debug_event.dwDebugEventCode	||
+				EXIT_THREAD_DEBUG_EVENT   == debug_event.dwDebugEventCode	||
+				EXCEPTION_DEBUG_EVENT     == debug_event.dwDebugEventCode	||
+				LOAD_DLL_DEBUG_EVENT      == debug_event.dwDebugEventCode	||
+				OUTPUT_DEBUG_STRING_EVENT == debug_event.dwDebugEventCode	||
+				UNLOAD_DLL_DEBUG_EVENT    == debug_event.dwDebugEventCode;
+			if (!go_on)
+				break;
+
+			// Some exceptions are also "normal", apparently.
+			if (EXCEPTION_DEBUG_EVENT== debug_event.dwDebugEventCode) {
+
+				int go_on =
+					EXCEPTION_BREAKPOINT== debug_event.u.Exception.ExceptionRecord.ExceptionCode;
+				if (!go_on)
+					break;
+			}
+
+			// If nothing unexpected happened, let child proceed
+			ContinueDebugEvent(
+				debug_event.dwProcessId,
+				debug_event.dwThreadId,
+				DBG_CONTINUE
+			);
+		}
+
+		// Clean up child process
+		TerminateProcess(process_info.hProcess, 1);
+		CloseHandle(process_info.hProcess);
+		CloseHandle(process_info.hThread);
+
+		// Reap return value and cleanup
+		CopyMemory(&rate, shared_mem, sizeof(rate));
+		(void)UnmapViewOfFile(shared_mem); 
+		(void)CloseHandle(map_handle); 
+
+	#else
+
+		// Not linux, not unix, not WIN32 ... do our best
+		rate = bench_algo_stage3(algo);
+
+	#endif // defined(unix)
+
+	// Done
+	return rate;
+}
+
+static void bench_algo(
+	double            *best_rate,
+	enum sha256_algos *best_algo,
+	enum sha256_algos algo
+)
+{
+	size_t n = max_name_len - strlen(algo_names[algo]);
+	memset(name_spaces_pad, ' ', n);
+	name_spaces_pad[n] = 0;
+
+	applog(
+		LOG_ERR,
+		"\"%s\"%s : benchmarking algorithm ...",
+		algo_names[algo],
+		name_spaces_pad
+	);
+
+	double rate = bench_algo_stage2(algo);
+	if (rate<0.0) {
+		applog(
+			LOG_ERR,
+			"\"%s\"%s : algorithm fails on this platform",
+			algo_names[algo],
+			name_spaces_pad
+		);
+	} else {
+		applog(
+			LOG_ERR,
+			"\"%s\"%s : algorithm runs at %.5f MH/s",
+			algo_names[algo],
+			name_spaces_pad,
+			rate
+		);
+		if (*best_rate<rate) {
+			*best_rate = rate;
+			*best_algo = algo;
+		}
+	}
+}
+
+// Figure out the longest algorithm name
+static void init_max_name_len()
+{
+	size_t i;
+	size_t nb_names = sizeof(algo_names)/sizeof(algo_names[0]);
+	for (i=0; i<nb_names; ++i) {
+		const char *p = algo_names[i];
+		size_t name_len = p ? strlen(p) : 0;
+		if (max_name_len<name_len)
+			max_name_len = name_len;
+	}
+
+	name_spaces_pad = (char*) malloc(max_name_len+16);
+	if (0==name_spaces_pad) {
+		perror("malloc failed");
+		exit(1);
+	}
+}
+
+// Pick the fastest CPU hasher
+static enum sha256_algos pick_fastest_algo()
+{
+	double best_rate = -1.0;
+	enum sha256_algos best_algo = 0;
+	applog(LOG_ERR, "benchmarking all sha256 algorithms ...");
+
+	bench_algo(&best_rate, &best_algo, ALGO_C);
+
+	#if defined(WANT_SSE2_4WAY)
+		bench_algo(&best_rate, &best_algo, ALGO_4WAY);
+	#endif
+
+	#if defined(WANT_VIA_PADLOCK)
+		bench_algo(&best_rate, &best_algo, ALGO_VIA);
+	#endif
+
+	bench_algo(&best_rate, &best_algo, ALGO_CRYPTOPP);
+
+	#if defined(WANT_CRYPTOPP_ASM32)
+		bench_algo(&best_rate, &best_algo, ALGO_CRYPTOPP_ASM32);
+	#endif
+
+	#if defined(WANT_X8664_SSE2)
+		bench_algo(&best_rate, &best_algo, ALGO_SSE2_64);
+	#endif
+
+	#if defined(WANT_X8664_SSE4)
+		bench_algo(&best_rate, &best_algo, ALGO_SSE4_64);
+	#endif
+
+	size_t n = max_name_len - strlen(algo_names[best_algo]);
+	memset(name_spaces_pad, ' ', n);
+	name_spaces_pad[n] = 0;
+	applog(
+		LOG_ERR,
+		"\"%s\"%s : is fastest algorithm at %.5f MH/s",
+		algo_names[best_algo],
+		name_spaces_pad,
+		best_rate
+	);
+	return best_algo;
+}
+
 /* FIXME: Use asprintf for better errors. */
 static char *set_algo(const char *arg, enum sha256_algos *algo)
 {
 	enum sha256_algos i;
+
+	if (!strcmp(arg, "auto")) {
+		*algo = pick_fastest_algo();
+		return NULL;
+	}
 
 	for (i = 0; i < ARRAY_SIZE(algo_names); i++) {
 		if (algo_names[i] && !strcmp(arg, algo_names[i])) {
@@ -517,7 +1010,8 @@ static struct opt_table opt_config_table[] = {
 	OPT_WITH_ARG("--algo|-a",
 		     set_algo, show_algo, &opt_algo,
 		     "Specify sha256 implementation for CPU mining:\n"
-		     "\tc\t\tLinux kernel sha256, implemented in C"
+		     "\tauto\t\tBenchmark at startup and pick fastest algorithm"
+		     "\n\tc\t\tLinux kernel sha256, implemented in C"
 #ifdef WANT_SSE2_4WAY
 		     "\n\t4way\t\ttcatm's 4-way SSE2 implementation"
 #endif
@@ -594,17 +1088,20 @@ static struct opt_table opt_config_table[] = {
 	OPT_WITH_ARG("--scan-time|-s",
 		     set_int_0_to_9999, opt_show_intval, &opt_scantime,
 		     "Upper bound on time spent scanning current work, in seconds"),
+	OPT_WITH_ARG("--bench-algo|-b",
+		     set_int_0_to_9999, opt_show_intval, &opt_bench_algo,
+		     opt_hidden),
 #ifdef HAVE_SYSLOG_H
 	OPT_WITHOUT_ARG("--syslog",
 			opt_set_bool, &use_syslog,
 			"Use system log for output messages (default: standard error)"),
 #endif
 
-#if !defined(WIN32)
+#if defined(unix)
 	OPT_WITH_ARG("--monitor|-m",
 		     opt_set_charp, NULL, &opt_stderr_cmd,
 		     "Use custom pipe cmd for output messages"),
-#endif // !WIN32
+#endif // defined(unix)
 
 	OPT_WITHOUT_ARG("--text-only|-T",
 			opt_set_invbool, &use_curses,
@@ -811,7 +1308,7 @@ static void curses_print_status(int thr_id)
 
 	wmove(statuswin, 0, 0);
 	wattron(statuswin, A_BOLD);
-	wprintw(statuswin, " " PROGRAM_NAME " version " VERSION " - Started: %s", datestamp);
+	wprintw(statuswin, " " PROGRAM_NAME " version " VERSION " - Started: %s CPU Algo: %s", datestamp, algo_names[opt_algo]);
 	wattroff(statuswin, A_BOLD);
 	wmove(statuswin, 1, 0);
 	whline(statuswin, '-', 80);
@@ -3604,6 +4101,7 @@ static void print_summary(void)
 
 	printf("\nSummary of runtime statistics:\n\n");
 	printf("Started at %s\n", datestamp);
+	printf("CPU hasher algorithm used: %s\n", algo_names[opt_algo]);
 	printf("Runtime: %d hrs : %d mins : %d secs\n", hours, mins, secs);
 	if (total_secs)
 		printf("Average hashrate: %.1f Megahash/s\n", total_mhashes_done / total_secs);
@@ -3763,72 +4261,73 @@ out:
 	return ret;
 }
 
-#if !defined(WIN32)
-static void fork_monitor()
-{
-	// Make a pipe: [readFD, writeFD]
-	int pfd[2];
-	int r = pipe(pfd);
-	if (r<0) {
-		perror("pipe - failed to create pipe for --monitor");
-		exit(1);
-	}
-
-	// Make stderr write end of pipe
-	fflush(stderr);
-	r = dup2(pfd[1], 2);
-	if (r<0) {
-		perror("dup2 - failed to alias stderr to write end of pipe for --monitor");
-		exit(1);
-	}
-	r = close(pfd[1]);
-	if (r<0) {
-		perror("close - failed to close write end of pipe for --monitor");
-		exit(1);
-	}
-
-	// Don't allow a dying monitor to kill the main process
-	sighandler_t sr = signal(SIGPIPE, SIG_IGN);
-	if (SIG_ERR==sr) {
-		perror("signal - failed to edit signal mask for --monitor");
-		exit(1);
-	}
-
-	// Fork a child process
-	r = fork();
-	if (r<0) {
-		perror("fork - failed to fork child process for --monitor");
-		exit(1);
-	}
-
-	// In child, launch command
-	if (0==r) {
-		// Make stdin read end of pipe
-		r = dup2(pfd[0], 0);
+#if defined(unix)
+	static void fork_monitor()
+	{
+		// Make a pipe: [readFD, writeFD]
+		int pfd[2];
+		int r = pipe(pfd);
 		if (r<0) {
-			perror("dup2 - in child, failed to alias read end of pipe to stdin for --monitor");
-			exit(1);
-		}
-		close(pfd[0]);
-		if (r<0) {
-			perror("close - in child, failed to close read end of  pipe for --monitor");
+			perror("pipe - failed to create pipe for --monitor");
 			exit(1);
 		}
 
-		// Launch user specified command
-		execl("/bin/bash", "/bin/bash", "-c", opt_stderr_cmd, (char*)NULL);
-		perror("execl - in child failed to exec user specified command for --monitor");
-		exit(1);
-	}
+		// Make stderr write end of pipe
+		fflush(stderr);
+		r = dup2(pfd[1], 2);
+		if (r<0) {
+			perror("dup2 - failed to alias stderr to write end of pipe for --monitor");
+			exit(1);
+		}
+		r = close(pfd[1]);
+		if (r<0) {
+			perror("close - failed to close write end of pipe for --monitor");
+			exit(1);
+		}
 
-	// In parent, clean up unused fds
-	r = close(pfd[0]);
-	if (r<0) {
-		perror("close - failed to close read end of pipe for --monitor");
-		exit(1);
+		// Don't allow a dying monitor to kill the main process
+		sighandler_t sr0 = signal(SIGPIPE, SIG_IGN);
+		sighandler_t sr1 = signal(SIGPIPE, SIG_IGN);
+		if (SIG_ERR==sr0 || SIG_ERR==sr1) {
+			perror("signal - failed to edit signal mask for --monitor");
+			exit(1);
+		}
+
+		// Fork a child process
+		r = fork();
+		if (r<0) {
+			perror("fork - failed to fork child process for --monitor");
+			exit(1);
+		}
+
+		// Child: launch monitor command
+		if (0==r) {
+			// Make stdin read end of pipe
+			r = dup2(pfd[0], 0);
+			if (r<0) {
+				perror("dup2 - in child, failed to alias read end of pipe to stdin for --monitor");
+				exit(1);
+			}
+			close(pfd[0]);
+			if (r<0) {
+				perror("close - in child, failed to close read end of  pipe for --monitor");
+				exit(1);
+			}
+
+			// Launch user specified command
+			execl("/bin/bash", "/bin/bash", "-c", opt_stderr_cmd, (char*)NULL);
+			perror("execl - in child failed to exec user specified command for --monitor");
+			exit(1);
+		}
+
+		// Parent: clean up unused fds and bail
+		r = close(pfd[0]);
+		if (r<0) {
+			perror("close - failed to close read end of pipe for --monitor");
+			exit(1);
+		}
 	}
-}
-#endif // !WIN32
+#endif // defined(unix)
 
 int main (int argc, char *argv[])
 {
@@ -3853,6 +4352,8 @@ int main (int argc, char *argv[])
 	if (unlikely(pthread_mutex_init(&control_lock, NULL)))
 		quit(1, "Failed to pthread_mutex_init");
 
+	init_max_name_len();
+
 	handler.sa_handler = &sighandler;
 	sigaction(SIGTERM, &handler, &termhandler);
 	sigaction(SIGINT, &handler, &inthandler);
@@ -3861,26 +4362,58 @@ int main (int argc, char *argv[])
 	gettimeofday(&total_tv_end, NULL);
 	get_datestamp(datestamp, &total_tv_start);
 
+	// Hack to make cgminer silent when called recursively on WIN32
+	int skip_to_bench = 0;
+	#if defined(WIN32)
+		char buf[32];
+		if (GetEnvironmentVariable("CGMINER_BENCH_ALGO", buf, 16))
+			skip_to_bench = 1;
+	#endif // defined(WIN32)
+
 	for (i = 0; i < 36; i++)
 		strcat(current_block, "0");
 	current_hash = calloc(sizeof(current_hash), 1);
 	if (unlikely(!current_hash))
 		quit (1, "main OOM");
 
-#ifdef WIN32
-	opt_n_threads = num_processors = 1;
-#else
-	num_processors = sysconf(_SC_NPROCESSORS_ONLN);
+	// Reckon number of cores in the box
+	#if defined(WIN32)
+
+		DWORD system_am;
+		DWORD process_am;
+		BOOL ok = GetProcessAffinityMask(
+			GetCurrentProcess(),
+			&system_am,
+			&process_am
+		);
+		if (!ok) {
+			applog(LOG_ERR, "couldn't figure out number of processors :(");
+			num_processors = 1;
+		} else {
+			size_t n = 32;
+			num_processors = 0;
+			while (n--)
+				if (process_am & (1<<n))
+					++num_processors;
+		}
+
+	#else
+
+		num_processors = sysconf(_SC_NPROCESSORS_ONLN);
+
+	#endif /* !WIN32 */
+
 	opt_n_threads = num_processors;
-#endif /* !WIN32 */
 
 #ifdef HAVE_OPENCL
-	for (i = 0; i < 16; i++)
-		gpu_devices[i] = false;
-	nDevs = clDevicesNum();
-	if (nDevs < 0) {
-		applog(LOG_ERR, "clDevicesNum returned error, none usable");
-		nDevs = 0;
+	if (!skip_to_bench) {
+		for (i = 0; i < 16; i++)
+			gpu_devices[i] = false;
+		nDevs = clDevicesNum();
+		if (nDevs < 0) {
+			applog(LOG_ERR, "clDevicesNum returned error, none usable");
+			nDevs = 0;
+		}
 	}
 #endif
 	if (nDevs)
@@ -3897,6 +4430,42 @@ int main (int argc, char *argv[])
 	opt_parse(&argc, argv, applog_and_exit);
 	if (argc != 1)
 		quit(1, "Unexpected extra commandline arguments");
+
+	if (0<=opt_bench_algo) {
+		double rate = bench_algo_stage3(opt_bench_algo);
+		if (!skip_to_bench) {
+			printf("%.5f (%s)\n", rate, algo_names[opt_bench_algo]);
+		} else {
+			// Write result to shared memory for parent
+			#if defined(WIN32)
+				char unique_name[64];
+				if (GetEnvironmentVariable("CGMINER_SHARED_MEM", unique_name, 32)) {
+					HANDLE map_handle = CreateFileMapping( 
+						INVALID_HANDLE_VALUE,   // use paging file
+						NULL,                   // default security attributes
+						PAGE_READWRITE,         // read/write access
+						0,                      // size: high 32-bits
+						4096,			// size: low 32-bits
+						unique_name		// name of map object
+					);
+					if (NULL!=map_handle) {
+						void *shared_mem = MapViewOfFile( 
+							map_handle,	// object to map view of
+							FILE_MAP_WRITE, // read/write access
+							0,              // high offset:  map from
+							0,              // low offset:   beginning
+							0		// default: map entire file
+						);
+						if (NULL!=shared_mem)  
+							CopyMemory(shared_mem, &rate, sizeof(rate));
+						(void)UnmapViewOfFile(shared_mem); 
+					}
+					(void)CloseHandle(map_handle); 
+				}
+			#endif
+		}
+		exit(0);
+	}
 
 	if (opt_kernel) {
 		if (strcmp(opt_kernel, "poclbm") && strcmp(opt_kernel, "phatk"))
@@ -3983,10 +4552,10 @@ int main (int argc, char *argv[])
 		openlog(PROGRAM_NAME, LOG_PID, LOG_USER);
 #endif
 
-#if !defined(WIN32)
-	if (opt_stderr_cmd)
-		fork_monitor();
-#endif // !WIN32
+	#if defined(unix)
+		if (opt_stderr_cmd)
+			fork_monitor();
+	#endif // defined(unix)
 
 	mining_threads = opt_n_threads + gpu_threads;
 
