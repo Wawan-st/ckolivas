@@ -629,7 +629,7 @@ __kernel
 //	Vals[7]+=0x5be0cd19U;
 
 #define MAXBUFFERS (4095)
-#define NFLAG (0xFFFUL)
+#define NFLAG (0xFFEUL)
 
 #if defined(VECTORS4) || defined(VECTORS2)
 	if (Vals[7].x == 0 - 0x5be0cd19U)

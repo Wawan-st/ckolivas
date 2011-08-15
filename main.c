@@ -263,6 +263,7 @@ static char datestamp[40];
 static char blocktime[30];
 
 static char *opt_kernel = NULL;
+static char *opt_stderr_cmd = NULL;
 
 #if defined(unix)
 	static char *opt_stderr_cmd = NULL;
@@ -1295,6 +1296,7 @@ static bool work_decode(const json_t *val, struct work *work)
 	}
 
 	memset(work->hash, 0, sizeof(work->hash));
+	gettimeofday(&work->tv_staged, NULL);
 
 	return true;
 
@@ -1495,6 +1497,7 @@ static bool submit_upstream_work(const struct work *work)
 	struct cgpu_info *cgpu = thr_info[thr_id].cgpu;
 	CURL *curl = curl_easy_init();
 	struct pool *pool = work->pool;
+	bool rolltime;
 
 	if (unlikely(!curl)) {
 		applog(LOG_ERR, "CURL initialisation failed");
@@ -1520,7 +1523,7 @@ static bool submit_upstream_work(const struct work *work)
 		applog(LOG_DEBUG, "DBG: sending %s submit RPC call: %s", pool->rpc_url, sd);
 
 	/* issue JSON-RPC request */
-	val = json_rpc_call(curl, pool->rpc_url, pool->rpc_userpass, s, false, false, pool);
+	val = json_rpc_call(curl, pool->rpc_url, pool->rpc_userpass, s, false, false, &rolltime, pool);
 	if (unlikely(!val)) {
 		applog(LOG_INFO, "submit_upstream_work json_rpc_call failed");
 		if (!pool_tset(pool, &pool->submit_fail)) {
@@ -1632,7 +1635,7 @@ static bool get_upstream_work(struct work *work, bool lagging)
 		applog(LOG_DEBUG, "DBG: sending %s get RPC call: %s", pool->rpc_url, rpc_req);
 
 	val = json_rpc_call(curl, pool->rpc_url, pool->rpc_userpass, rpc_req,
-			    want_longpoll, false, pool);
+			    want_longpoll, false, &work->rolltime, pool);
 	if (unlikely(!val)) {
 		applog(LOG_DEBUG, "Failed json_rpc_call in get_upstream_work");
 		goto out;
@@ -1652,6 +1655,20 @@ out:
 	return rc;
 }
 
+static struct work *make_work(void)
+{
+	struct work *work = calloc(1, sizeof(struct work));
+
+	if (unlikely(!work))
+		quit(1, "Failed to calloc work in make_work");
+	return work;
+}
+
+static void free_work(struct work *work)
+{
+	free(work);
+}
+
 static void workio_cmd_free(struct workio_cmd *wc)
 {
 	if (!wc)
@@ -1659,7 +1676,7 @@ static void workio_cmd_free(struct workio_cmd *wc)
 
 	switch (wc->cmd) {
 	case WC_SUBMIT_WORK:
-		free(wc->u.work);
+		free_work(wc->u.work);
 		break;
 	default: /* do nothing */
 		break;
@@ -1781,7 +1798,7 @@ static void *get_work_thread(void *userdata)
 	while (!get_upstream_work(ret_work, wc->lagging)) {
 		if (unlikely((opt_retries >= 0) && (++failures > opt_retries))) {
 			applog(LOG_ERR, "json_rpc_call failed, terminating workio thread");
-			free(ret_work);
+			free_work(ret_work);
 			kill_work();
 			goto out;
 		}
@@ -1799,7 +1816,7 @@ static void *get_work_thread(void *userdata)
 	if (unlikely(!tq_push(thr_info[stage_thr_id].q, ret_work))) {
 		applog(LOG_ERR, "Failed to tq_push work in workio_get_work");
 		kill_work();
-		free(ret_work);
+		free_work(ret_work);
 	}
 
 out:
@@ -1825,7 +1842,7 @@ static bool stale_work(struct work *work)
 	char *hexstr;
 
 	gettimeofday(&now, NULL);
-	if ((now.tv_sec - work->tv_staged.tv_sec) > opt_scantime)
+	if ((now.tv_sec - work->tv_staged.tv_sec) >= opt_scantime)
 		return true;
 
 	/* Only use the primary pool for determination as the work may
@@ -2102,8 +2119,6 @@ static void *stage_thread(void *userdata)
 		}
 
 		test_work_current(work);
-		if (!work->cloned && !work->clone)
-			gettimeofday(&work->tv_staged, NULL);
 
 		if (opt_debug)
 			applog(LOG_DEBUG, "Pushing work to getwork queue");
@@ -2767,11 +2782,12 @@ static int requests_queued(void)
 	return ret;
 }
 
-static bool pool_active(struct pool *pool)
+static bool pool_active(struct pool *pool, bool pinging)
 {
 	bool ret = false;
 	json_t *val;
 	CURL *curl;
+	bool rolltime;
 
 	curl = curl_easy_init();
 	if (unlikely(!curl)) {
@@ -2781,7 +2797,7 @@ static bool pool_active(struct pool *pool)
 
 	applog(LOG_INFO, "Testing pool %s", pool->rpc_url);
 	val = json_rpc_call(curl, pool->rpc_url, pool->rpc_userpass, rpc_req,
-			true, false, pool);
+			true, false, &rolltime, pool);
 
 	if (val) {
 		struct work *work = make_work();
@@ -2792,6 +2808,7 @@ static bool pool_active(struct pool *pool)
 			applog(LOG_DEBUG, "Successfully retrieved and deciphered work from pool %u %s",
 			       pool->pool_no, pool->rpc_url);
 			work->pool = pool;
+			work->rolltime = rolltime;
 			if (opt_debug)
 				applog(LOG_DEBUG, "Pushing pooltest work to base pool");
 
@@ -2804,13 +2821,14 @@ static bool pool_active(struct pool *pool)
 		} else {
 			applog(LOG_DEBUG, "Successfully retrieved but FAILED to decipher work from pool %u %s",
 			       pool->pool_no, pool->rpc_url);
-			free(work);
+			free_work(work);
 		}
 		json_decref(val);
 	} else {
 		applog(LOG_DEBUG, "FAILED to retrieve work from pool %u %s",
 		       pool->pool_no, pool->rpc_url);
-		applog(LOG_WARNING, "Pool down, URL or credentials invalid");
+		if (!pinging)
+			applog(LOG_WARNING, "Pool down, URL or credentials invalid");
 	}
 
 	curl_easy_cleanup(curl);
@@ -2879,15 +2897,15 @@ static bool queue_request(struct thr_info *thr, bool needed)
 
 static void discard_work(struct work *work)
 {
-	if (!work->clone) {
+	if (!work->clone && !work->rolls && !work->mined) {
 		if (work->pool)
 			work->pool->discarded_work++;
 		total_discarded++;
 		if (opt_debug)
-			applog(LOG_DEBUG, "Discarded cloned work");
+			applog(LOG_DEBUG, "Discarded work");
 	} else if (opt_debug)
-		applog(LOG_DEBUG, "Discarded work");
-	free(work);
+		applog(LOG_DEBUG, "Discarded cloned or rolled work");
+	free_work(work);
 }
 
 static void discard_staged(void)
@@ -2939,9 +2957,21 @@ static void flush_requests(void)
 	}
 }
 
+static inline bool should_roll(struct work *work)
+{
+	int rs;
+
+	rs = real_staged();
+	if (rs >= opt_queue + mining_threads)
+		return false;
+	if (work->pool == current_pool() || pool_strategy == POOL_LOADBALANCE || !rs)
+		return true;
+	return false;
+}
+
 static inline bool can_roll(struct work *work)
 {
-	return (work->pool && !stale_work(work) && work->pool->has_rolltime &&
+	return (work->pool && !stale_work(work) && work->rolltime &&
 		work->rolls < 11 && !work->clone);
 }
 
@@ -2957,7 +2987,6 @@ static void roll_work(struct work *work)
 	local_work++;
 	work->rolls++;
 	work->blk.nonce = 0;
-	gettimeofday(&work->tv_staged, NULL);
 	if (opt_debug)
 		applog(LOG_DEBUG, "Successfully rolled work");
 }
@@ -2969,27 +2998,20 @@ static bool divide_work(struct timeval *now, struct work *work, uint32_t hash_di
 {
 	uint64_t hash_inc;
 
-	if (hash_div < 3 || work->clone)
+	if (work->clone)
 		return false;
 
 	hash_inc = MAXTHREADS / hash_div * 2;
 	if ((uint64_t)work->blk.nonce + hash_inc < MAXTHREADS) {
-		/* Don't keep handing it out if it's getting old, but try to
-		 * roll it instead */
-		if ((now->tv_sec - work->tv_staged.tv_sec) > opt_scantime) {
-			if (!can_roll(work))
-				return false;
-			else {
-				roll_work(work);
-				return true;
-			}
-		}
 		/* Okay we can divide it up */
 		work->blk.nonce += hash_inc;
 		work->cloned = true;
 		local_work++;
 		if (opt_debug)
 			applog(LOG_DEBUG, "Successfully divided work");
+		return true;
+	} else if (can_roll(work) && should_roll(work)) {
+		roll_work(work);
 		return true;
 	}
 	return false;
@@ -3083,7 +3105,7 @@ retry:
 		work->clone = true;
 	} else {
 		dec_queued();
-		free(work_heap);
+		free_work(work_heap);
 	}
 
 	ret = true;
@@ -3100,6 +3122,8 @@ out:
 
 	work->thr_id = thr_id;
 	thread_reportin(thr);
+	if (ret)
+		work->mined = true;
 	return ret;
 }
 
@@ -3704,7 +3728,7 @@ static void restart_threads(void)
 }
 
 /* Stage another work item from the work returned in a longpoll */
-static void convert_to_work(json_t *val)
+static void convert_to_work(json_t *val, bool rolltime)
 {
 	struct work *work;
 	bool rc;
@@ -3717,6 +3741,7 @@ static void convert_to_work(json_t *val)
 		return;
 	}
 	work->pool = current_pool();
+	work->rolltime = rolltime;
 
 	if (opt_debug)
 		applog(LOG_DEBUG, "Pushing converted work to stage thread");
@@ -3777,11 +3802,12 @@ static void *longpoll_thread(void *userdata)
 
 	while (1) {
 		struct timeval start, end;
+		bool rolltime;
 		json_t *val;
 
 		gettimeofday(&start, NULL);
 		val = json_rpc_call(curl, lp_url, pool->rpc_userpass, rpc_req,
-				    false, true, pool);
+				    false, true, &rolltime, pool);
 		if (likely(val)) {
 			/* Keep track of who ordered a restart_threads to make
 			 * sure it's only done once per new block */
@@ -3795,7 +3821,7 @@ static void *longpoll_thread(void *userdata)
 				block_changed = BLOCK_NONE;
 			}
 
-			convert_to_work(val);
+			convert_to_work(val, rolltime);
 			failures = 0;
 			json_decref(val);
 		} else {
@@ -4069,7 +4095,7 @@ static void *watchdog_thread(void *userdata)
 			/* Test pool is idle once every minute */
 			if (pool->idle && now.tv_sec - pool->tv_idle.tv_sec > 60) {
 				gettimeofday(&pool->tv_idle, NULL);
-				if (pool_active(pool) && pool_tclear(pool, &pool->idle))
+				if (pool_active(pool, true) && pool_tclear(pool, &pool->idle))
 					pool_resus(pool);
 			}
 		}
@@ -4174,6 +4200,7 @@ static void print_summary(void)
 			print_status(i);
 	}
 	printf("\n");
+	fflush(stdout);
 }
 
 void quit(int status, const char *format, ...)
@@ -4266,7 +4293,7 @@ static bool input_pool(bool live)
 	/* Test the pool before we enable it if we're live running, otherwise
 	 * it will be tested separately */
 	ret = true;
-	if (live && pool_active(pool))
+	if (live && pool_active(pool, false))
 		pool->enabled = true;
 	pools[total_pools++] = pool;
 out:
@@ -4647,7 +4674,7 @@ int main (int argc, char *argv[])
 		struct pool *pool;
 
 		pool = pools[i];
-		if (pool_active(pool)) {
+		if (pool_active(pool, false)) {
 			if (!currentpool)
 				currentpool = pool;
 			applog(LOG_INFO, "Pool %d %s active", pool->pool_no, pool->rpc_url);
