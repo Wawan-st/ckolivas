@@ -1,4 +1,3 @@
-
 /*
  * Copyright 2011 Con Kolivas
  * Copyright 2010 Jeff Garzik
@@ -1868,7 +1867,7 @@ static void curses_print_devstatus(int thr_id)
 		mvwprintw(statuswin, gpucursor + gpu, 0, " GPU %d: ", gpu);
 #ifdef HAVE_ADL
 		if (cgpu->has_adl)
-			wprintw(statuswin, "%.1fC %dRPM | ", gpu_temp(gpu), gpu_fanspeed(gpu));
+			wprintw(statuswin, "%.1fC %4dRPM | ", gpu_temp(gpu), gpu_fanspeed(gpu));
 #endif
 		if (cgpu->status == LIFE_DEAD)
 			wprintw(statuswin, "DEAD ");
