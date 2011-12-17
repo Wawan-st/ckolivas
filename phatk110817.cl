@@ -4,7 +4,7 @@
 
 #ifdef VECTORS4
 	typedef uint4 u;
-#else 
+#else
 	#ifdef VECTORS2
 		typedef uint2 u;
 	#else
@@ -12,7 +12,7 @@
 	#endif
 #endif
 
-__constant uint K[64] = { 
+__constant uint K[64] = {
     0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
     0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
     0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
@@ -43,7 +43,7 @@ __constant uint ConstW[128] = {
 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000
 };
 
-__constant uint H[8] = { 
+__constant uint H[8] = {
 	0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19
 };
 
@@ -65,12 +65,12 @@ __constant uint H[8] = {
 
 #ifdef BFI_INT
 	// Well, slight problem... It turns out BFI_INT isn't actually exposed to
-	// OpenCL (or CAL IL for that matter) in any way. However, there is 
+	// OpenCL (or CAL IL for that matter) in any way. However, there is
 	// a similar instruction, BYTE_ALIGN_INT, which is exposed to OpenCL via
-	// amd_bytealign, takes the same inputs, and provides the same output. 
-	// We can use that as a placeholder for BFI_INT and have the application 
+	// amd_bytealign, takes the same inputs, and provides the same output.
+	// We can use that as a placeholder for BFI_INT and have the application
 	// patch it after compilation.
-	
+
 	// This is the BFI_INT function
 	#define Ch(x, y, z) amd_bytealign(x,y,z)
 	// Ma can also be implemented in terms of BFI_INT...
@@ -93,7 +93,7 @@ __constant uint H[8] = {
 #define maj(n) Ma(Vals[(1 + 128 - (n)) % 8],Vals[(2 + 128 - (n)) % 8],Vals[(0 + 128 - (n)) % 8])
 
 //t1 calc when W is already calculated
-#define t1(n) K[(n) % 64] + Vals[(7 + 128 - (n)) % 8] +  W[(n)] + s1(n) + ch(n) 
+#define t1(n) K[(n) % 64] + Vals[(7 + 128 - (n)) % 8] +  W[(n)] + s1(n) + ch(n)
 
 //t1 calc which calculates W
 #define t1W(n) K[(n) % 64] + Vals[(7 + 128 - (n)) % 8] +  W(n) + s1(n) + ch(n)
@@ -131,7 +131,7 @@ __constant uint H[8] = {
 #define P4C(x)  ConstW[x-16]
 
 //SHA round with built in W calc
-#define sharoundW(n) Barrier1(n);  Vals[(3 + 128 - (n)) % 8] += t1W(n); Vals[(7 + 128 - (n)) % 8] = t1W(n) + t2(n);  
+#define sharoundW(n) Barrier1(n);  Vals[(3 + 128 - (n)) % 8] += t1W(n); Vals[(7 + 128 - (n)) % 8] = t1W(n) + t2(n);
 
 //SHA round without W calc
 #define sharound(n)  Barrier2(n); Vals[(3 + 128 - (n)) % 8] += t1(n); Vals[(7 + 128 - (n)) % 8] = t1(n) + t2(n);
@@ -147,7 +147,7 @@ __constant uint H[8] = {
 //#define WORKSIZE 256
 #define MAXBUFFERS (4095)
 
-__kernel 
+__kernel
  __attribute__((reqd_work_group_size(WORKSIZE, 1, 1)))
 void search(	const uint state0, const uint state1, const uint state2, const uint state3,
 						const uint state4, const uint state5, const uint state6, const uint state7,
@@ -158,7 +158,7 @@ void search(	const uint state0, const uint state1, const uint state2, const uint
 						const uint PreVal4, const uint PreVal0,
 						const uint PreW18, const uint PreW19,
 						const uint PreW31, const uint PreW32,
-						
+
 						__global uint * output)
 {
 
@@ -168,7 +168,7 @@ void search(	const uint state0, const uint state1, const uint state2, const uint
 
 //Dummy Variable to prevent compiler from reordering between rounds
 	u t1;
-	
+
 	//Vals[0]=state0;
 	Vals[1]=B1;
 	Vals[2]=C1;
@@ -252,7 +252,7 @@ void search(	const uint state0, const uint state1, const uint state2, const uint
 	sharoundW(34);
 	sharoundW(35);
 	sharoundW(36);
-	sharoundW(37);	
+	sharoundW(37);
 	sharoundW(38);
 	sharoundW(39);
 	sharoundW(40);
@@ -302,7 +302,7 @@ void search(	const uint state0, const uint state1, const uint state2, const uint
 	const u Temp = (0xb0edbdd0U + K[0]) +  W[64];
 	Vals[7] = Temp + 0x08909ae5U;
 	Vals[3] = 0xa54ff53aU + Temp;
-	
+
 #define P124(n) P2(n) + P1(n) + P4(n)
 
 

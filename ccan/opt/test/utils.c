@@ -47,7 +47,7 @@ void save_err_output(const char *fmt, ...)
 		free(p);
 	} else
 		err_output = p;
-}	
+}
 
 static bool allocated = false;
 

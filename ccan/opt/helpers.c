@@ -113,7 +113,7 @@ char *opt_set_ulongval(const char *arg, unsigned long *ul)
 {
 	long int l;
 	char *err;
-	
+
 	err = opt_set_longval(arg, &l);
 	if (err)
 		return err;
