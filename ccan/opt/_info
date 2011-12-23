@@ -11,11 +11,11 @@
  * #include <ccan/opt/opt.h>
  * #include <stdio.h>
  * #include <stdlib.h>
- * 
+ *
  * static bool someflag;
  * static int verbose;
  * static char *somestring;
- * 
+ *
  * static struct opt_table opts[] = {
  * 	OPT_WITHOUT_ARG("--verbose|-v", opt_inc_intval, &verbose,
  *			"Verbose mode (can be specified more than once)"),
@@ -28,18 +28,18 @@
  *			"Print this message."),
  * 	OPT_ENDTABLE
  * };
- * 
+ *
  * int main(int argc, char *argv[])
  * {
  * 	int i;
- * 
+ *
  * 	opt_register_table(opts, NULL);
  * 	// For fun, register an extra one.
  * 	opt_register_noarg("--no-someflag", opt_set_invbool, &someflag,
  * 			   "Unset someflag");
  * 	if (!opt_parse(&argc, argv, opt_log_stderr))
  * 		exit(1);
- * 
+ *
  * 	printf("someflag = %i, verbose = %i, somestring = %s\n",
  * 	       someflag, verbose, somestring);
  * 	printf("%u args left over:", argc - 1);

@@ -201,7 +201,7 @@ bool opt_parse(int *argc, char *argv[], void (*errlog)(const char *fmt, ...))
 {
 	int ret;
 	unsigned offset = 0;
-	
+
 	#ifdef WIN32
 	char *original_argv0 = argv[0];
 	argv[0] = (char*)basename(argv[0]);
@@ -211,7 +211,7 @@ bool opt_parse(int *argc, char *argv[], void (*errlog)(const char *fmt, ...))
 	opt_argv0 = argv[0];
 
 	while ((ret = parse_one(argc, argv, &offset, errlog)) == 1);
-	
+
 	#ifdef WIN32
 	argv[0] = original_argv0;
 	#endif

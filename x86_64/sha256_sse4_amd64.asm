@@ -45,17 +45,17 @@ LAB_CALC:
 %macro	lab_calc_blk 1
 
 	movntdqa	xmm0, [r11-(15-%1)*16]				; xmm0 = W[I-15]
-	movdqa	xmm2, xmm0					; xmm2 = W[I-15]	
+	movdqa	xmm2, xmm0					; xmm2 = W[I-15]
 	movntdqa	xmm4, [r11-(15-(%1+1))*16]			; xmm4 = W[I-15+1]
-	movdqa	xmm6, xmm4					; xmm6 = W[I-15+1]	
+	movdqa	xmm6, xmm4					; xmm6 = W[I-15+1]
 
 	psrld	xmm0, 3						; xmm0 = W[I-15] >> 3
-	movdqa	xmm1, xmm0					; xmm1 = W[I-15] >> 3	
-	pslld	xmm2, 14					; xmm2 = W[I-15] << 14			
+	movdqa	xmm1, xmm0					; xmm1 = W[I-15] >> 3
+	pslld	xmm2, 14					; xmm2 = W[I-15] << 14
 	psrld	xmm4, 3						; xmm4 = W[I-15+1] >> 3
 	movdqa	xmm5, xmm4					; xmm5 = W[I-15+1] >> 3
-	psrld	xmm5, 4						; xmm5 = W[I-15+1] >> 7	
-	pxor	xmm4, xmm5					; xmm4 = (W[I-15+1] >> 3) ^ (W[I-15+1] >> 7)	
+	psrld	xmm5, 4						; xmm5 = W[I-15+1] >> 7
+	pxor	xmm4, xmm5					; xmm4 = (W[I-15+1] >> 3) ^ (W[I-15+1] >> 7)
 	pslld	xmm6, 14					; xmm6 = W[I-15+1] << 14
 	psrld	xmm1, 4						; xmm1 = W[I-15] >> 7
 	pxor	xmm0, xmm1					; xmm0 = (W[I-15] >> 3) ^ (W[I-15] >> 7)
@@ -63,7 +63,7 @@ LAB_CALC:
 	psrld	xmm1, 11					; xmm1 = W[I-15] >> 18
 	psrld	xmm5, 11					; xmm5 = W[I-15+1] >> 18
 	pxor	xmm4, xmm6					; xmm4 = (W[I-15+1] >> 3) ^ (W[I-15+1] >> 7) ^ (W[I-15+1] << 14)
-	pxor	xmm4, xmm5					; xmm4 = (W[I-15+1] >> 3) ^ (W[I-15+1] >> 7) ^ (W[I-15+1] << 14) ^ (W[I-15+1] >> 18)	
+	pxor	xmm4, xmm5					; xmm4 = (W[I-15+1] >> 3) ^ (W[I-15+1] >> 7) ^ (W[I-15+1] << 14) ^ (W[I-15+1] >> 18)
 	pslld	xmm2, 11					; xmm2 = W[I-15] << 25
 	pslld	xmm6, 11					; xmm6 = W[I-15+1] << 25
 	pxor	xmm4, xmm6					; xmm4 = (W[I-15+1] >> 3) ^ (W[I-15+1] >> 7) ^ (W[I-15+1] << 14) ^ (W[I-15+1] >> 18) ^ (W[I-15+1] << 25)
@@ -85,7 +85,7 @@ LAB_CALC:
 
 	paddd	xmm0, [r11-(7-%1)*16]				; xmm0 = s0(W[I-15]) + W[I-16] + W[I-7]
 	paddd	xmm4, [r11-(7-(%1+1))*16]			; xmm4 = s0(W[I-15+1]) + W[I-16+1] + W[I-7+1]
-	
+
 	pslld	xmm2, 13					; xmm2 = W[I-2] << 13
 	pslld	xmm6, 13					; xmm6 = W[I-2+1] << 13
 	psrld	xmm1, 7						; xmm1 = W[I-2] >> 17
@@ -98,7 +98,7 @@ LAB_CALC:
 	pxor	xmm3, xmm2					; xmm3 = (W[I-2] >> 10) ^ (W[I-2] >> 17) ^ (W[I-2] << 13)
 	pslld	xmm2, 2						; xmm2 = W[I-2] << 15
 	pxor	xmm7, xmm5					; xmm7 = (W[I-2+1] >> 10) ^ (W[I-2+1] >> 17)
-	psrld	xmm5, 2						; xmm5 = W[I-2+1] >> 19	
+	psrld	xmm5, 2						; xmm5 = W[I-2+1] >> 19
 	pxor	xmm7, xmm6					; xmm7 = (W[I-2+1] >> 10) ^ (W[I-2+1] >> 17) ^ (W[I-2+1] << 13)
 	pslld	xmm6, 2						; xmm6 = W[I-2+1] << 15
 
@@ -107,7 +107,7 @@ LAB_CALC:
 	pxor	xmm3, xmm1					; xmm3 = (W[I-2] >> 10) ^ (W[I-2] >> 17) ^ (W[I-2] << 13) ^ (W[I-2] >> 19)
 	pxor	xmm3, xmm2					; xmm3 = (W[I-2] >> 10) ^ (W[I-2] >> 17) ^ (W[I-2] << 13) ^ (W[I-2] >> 19) ^ (W[I-2] << 15)
 	paddd	xmm0, xmm3					; xmm0 = s0(W[I-15]) + W[I-16] + s1(W[I-2]) + W[I-7]
-	pxor	xmm7, xmm5					; xmm7 = (W[I-2+1] >> 10) ^ (W[I-2+1] >> 17) ^ (W[I-2+1] << 13) ^ (W[I-2+1] >> 19)	
+	pxor	xmm7, xmm5					; xmm7 = (W[I-2+1] >> 10) ^ (W[I-2+1] >> 17) ^ (W[I-2+1] << 13) ^ (W[I-2+1] >> 19)
 	pxor	xmm7, xmm6					; xmm7 = (W[I-2+1] >> 10) ^ (W[I-2+1] >> 17) ^ (W[I-2+1] << 13) ^ (W[I-2+1] >> 19) ^ (W[I-2+1] << 15)
 	paddd	xmm4, xmm7					; xmm4 = s0(W[I-15+1]) + W[I-16+1] + s1(W[I-2+1]) + W[I-7+1]
 

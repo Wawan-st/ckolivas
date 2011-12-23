@@ -59,7 +59,7 @@ static int saved_printf(const char *fmt, ...)
 	ret = saved_vprintf(fmt, ap);
 	va_end(ap);
 	return ret;
-}	
+}
 
 static int saved_fprintf(FILE *ignored, const char *fmt, ...)
 {
@@ -70,7 +70,7 @@ static int saved_fprintf(FILE *ignored, const char *fmt, ...)
 	ret = saved_vprintf(fmt, ap);
 	va_end(ap);
 	return ret;
-}	
+}
 
 #undef malloc
 static void *last_allocation;

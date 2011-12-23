@@ -81,7 +81,7 @@ If you are on 32 bit, x86_64 in the 2nd last line should be x86
 	or if you haven't installed the ati files in system locations:
 	CFLAGS="-O2 -Wall -march=native -I<path to AMD APP include>" LDFLAGS="-L<path to AMD APP lib/x86_64> ./configure
 	make
-	
+
 	If it finds the opencl files it will inform you with
 	"OpenCL: FOUND. GPU mining support enabled."
 
@@ -91,7 +91,7 @@ Basic WIN32 build instructions (LIKELY OUTDATED INFO. requires mingw32):
 	MINGW32_CFLAGS="-O2 -Wall -msse2" mingw32-configure
 	make
 	./mknsis.sh
-	
+
 Native WIN32 build instructions (on mingw32, on windows):
 	Install the Microsoft platform SDK
 	Install AMD APP sdk, latest version (only if you want GPU mining)
@@ -109,7 +109,7 @@ Native WIN32 build instructions (on mingw32, on windows):
 
 Usage instructions:  Run "cgminer --help" to see options:
 
-Usage: . [-atDdGCgIKklmpPQqrRsTouvwOchnV] 
+Usage: . [-atDdGCgIKklmpPQqrRsTouvwOchnV]
 Options for both config file and command line:
 --algo|-a <arg>     Specify sha256 implementation for CPU mining:
         auto            Benchmark at startup and pick fastest algorithm

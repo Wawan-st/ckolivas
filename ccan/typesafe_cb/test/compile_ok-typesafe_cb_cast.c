@@ -31,10 +31,10 @@ int main(int argc, char *argv[])
 	take_any(typesafe_cb_cast3(struct any *,
 				   struct foo *, struct bar *, struct baz *,
 				   foo));
-	take_any(typesafe_cb_cast3(struct any *, 
+	take_any(typesafe_cb_cast3(struct any *,
 				   struct foo *, struct bar *, struct baz *,
 				   bar));
-	take_any(typesafe_cb_cast3(struct any *, 
+	take_any(typesafe_cb_cast3(struct any *,
 				   struct foo *, struct bar *, struct baz *,
 				   baz));
 	return 0;
