@@ -4925,7 +4925,7 @@ static void *longpoll_thread(void *userdata)
 
 	pool = select_longpoll_pool();
 new_longpoll:
-	if (!pool) {
+	if (!pool || !pool->hdr_path) {
 		applog(LOG_WARNING, "No long-poll found on any pool server");
 		goto out;
 	}
