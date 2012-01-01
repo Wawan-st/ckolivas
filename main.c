@@ -444,6 +444,16 @@ static bool pool_tclear(struct pool *pool, bool *var)
 	return ret;
 }
 
+static bool pool_isset(struct pool *pool, bool *var)
+{
+	bool ret;
+
+	mutex_lock(&pool->pool_lock);
+	ret = *var;
+	mutex_unlock(&pool->pool_lock);
+	return ret;
+}
+
 static struct pool *current_pool(void)
 {
 	struct pool *pool;
@@ -2292,6 +2302,11 @@ static bool submit_upstream_work(const struct work *work)
 	if (opt_debug)
 		applog(LOG_DEBUG, "DBG: sending %s submit RPC call: %s", pool->rpc_url, sd);
 
+	/* Force a fresh connection in case there are dead persistent
+	 * connections to this pool */
+	if (pool_isset(pool, &pool->submit_fail))
+		curl_easy_setopt(curl, CURLOPT_FRESH_CONNECT, 1);
+
 	/* issue JSON-RPC request */
 	val = json_rpc_call(curl, pool->rpc_url, pool->rpc_userpass, s, false, false, &rolltime, pool);
 	if (unlikely(!val)) {
@@ -2448,8 +2463,12 @@ retry:
 	}
 
 	rc = work_decode(json_object_get(val, "result"), work);
-	if (!rc && retries < 3)
+	if (!rc && retries < 3) {
+		/* Force a fresh connection in case there are dead persistent
+		 * connections */
+		curl_easy_setopt(curl, CURLOPT_FRESH_CONNECT, 1);
 		goto retry;
+	}
 	work->pool = pool;
 	total_getworks++;
 	pool->getwork_requested++;
@@ -3954,8 +3973,12 @@ static bool pool_active(struct pool *pool, bool pinging)
 	} else {
 		applog(LOG_DEBUG, "FAILED to retrieve work from pool %u %s",
 		       pool->pool_no, pool->rpc_url);
-		if (!pinging)
-			applog(LOG_WARNING, "Pool %u slow/down or URL or credentials invalid", pool->pool_no);
+		if (!pinging) {
+			if (!donor(pool))
+				applog(LOG_WARNING, "Pool %u slow/down or URL or credentials invalid", pool->pool_no);
+			else
+				applog(LOG_WARNING, "Donor pool slow to respond");
+		}
 	}
 
 	curl_easy_cleanup(curl);
@@ -5322,9 +5345,16 @@ static void *watchdog_thread(void *userdata)
 			} else if (now.tv_sec - thr->last.tv_sec > 600 && gpus[i].status == LIFE_SICK) {
 				gpus[gpu].status = LIFE_DEAD;
 				applog(LOG_ERR, "Thread %d not responding for more than 10 minutes, GPU %d declared DEAD!", i, gpu);
-			} else if (now.tv_sec - thr->sick.tv_sec > 60 && gpus[i].status == LIFE_SICK) {
-				/* Attempt to restart a GPU once every minute */
 				gettimeofday(&thr->sick, NULL);
+			} else if (now.tv_sec - thr->sick.tv_sec > 60 &&
+				   (gpus[i].status == LIFE_SICK || gpus[i].status == LIFE_DEAD)) {
+				/* Attempt to restart a GPU that's sick or dead once every minute */
+				gettimeofday(&thr->sick, NULL);
+#ifdef HAVE_ADL
+				if (adl_active && gpus[gpu].has_adl && gpu_activity(gpu) > 50) {
+					/* Again do not attempt to restart a device that may have hard hung */
+				} else
+#endif
 				if (opt_restart)
 					reinit_device(thr->cgpu);
 			}
