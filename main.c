@@ -1136,6 +1136,15 @@ static char *set_schedtime(const char *arg, struct schedtime *st)
 	return NULL;
 }
 
+
+static char *set_socks_proxy(const char *arg)
+{
+    struct pool *pool;
+	pool = pools[total_urls - 1];
+	opt_set_charp(arg, &pool->rpc_socks_proxy);
+	return NULL;
+}
+
 #ifdef HAVE_ADL
 static void get_intrange(char *arg, int *val1, int *val2)
 {
@@ -1664,6 +1673,9 @@ static struct opt_table opt_config_table[] = {
 	OPT_WITH_ARG("--sched-stop",
 		     set_schedtime, NULL, &schedstop,
 		     "Set a time of day in HH:MM to stop mining (will quit without a start time)"),
+	OPT_WITH_ARG("--socks-proxy",
+		     set_socks_proxy, NULL, NULL,
+		     "Set socks4 proxy (host:port)"),
 	OPT_WITH_ARG("--shares",
 		     opt_set_intval, NULL, &opt_shares,
 		     "Quit after mining N shares (default: unlimited)"),
@@ -2327,7 +2339,8 @@ static bool submit_upstream_work(const struct work *work)
 		curl_easy_setopt(curl, CURLOPT_FRESH_CONNECT, 1);
 
 	/* issue JSON-RPC request */
-	val = json_rpc_call(curl, pool->rpc_url, pool->rpc_userpass, s, false, false, &rolltime, pool);
+	val = json_rpc_call(curl, pool->rpc_url, pool->rpc_userpass, s,
+            false, false, &rolltime, pool->rpc_socks_proxy, pool);
 	if (unlikely(!val)) {
 		applog(LOG_INFO, "submit_upstream_work json_rpc_call failed");
 		if (!pool_tset(pool, &pool->submit_fail)) {
@@ -2478,7 +2491,7 @@ retry:
 	 * failure so retry a few times before giving up */
 	while (!val && retries++ < 3) {
 		val = json_rpc_call(curl, pool->rpc_url, pool->rpc_userpass, rpc_req,
-			    false, false, &work->rolltime, pool);
+			    false, false, &work->rolltime, pool->rpc_socks_proxy, pool);
 		if (donor(pool) && !val) {
 			if (opt_debug)
 				applog(LOG_DEBUG, "Donor pool lagging");
@@ -3976,7 +3989,7 @@ static bool pool_active(struct pool *pool, bool pinging)
 
 	applog(LOG_INFO, "Testing pool %s", pool->rpc_url);
 	val = json_rpc_call(curl, pool->rpc_url, pool->rpc_userpass, rpc_req,
-			true, false, &rolltime, pool);
+			true, false, &rolltime, pool->rpc_socks_proxy, pool);
 
 	if (val) {
 		struct work *work = make_work();
@@ -5010,7 +5023,7 @@ new_longpoll:
 	while (1) {
 		gettimeofday(&start, NULL);
 		val = json_rpc_call(curl, lp_url, pool->rpc_userpass, rpc_req,
-				    false, true, &rolltime, pool);
+				    false, true, &rolltime, pool->rpc_socks_proxy, pool);
 		if (likely(val)) {
 			convert_to_work(val, rolltime, pool);
 			failures = 0;

@@ -348,7 +348,7 @@ extern bool opt_api_network;
 extern const uint32_t sha256_init_state[];
 extern json_t *json_rpc_call(CURL *curl, const char *url, const char *userpass,
 			     const char *rpc_req, bool, bool, bool *,
-			     struct pool *pool);
+			     const char *rpc_socks_proxy, struct pool *pool);
 extern char *bin2hex(const unsigned char *p, size_t len);
 extern bool hex2bin(unsigned char *p, const char *hexstr, size_t len);
 
@@ -508,6 +508,7 @@ struct pool {
 	char *rpc_url;
 	char *rpc_userpass;
 	char *rpc_user, *rpc_pass;
+    char *rpc_socks_proxy;
 
 	pthread_mutex_t pool_lock;
 };
