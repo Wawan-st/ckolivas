@@ -175,15 +175,15 @@ static void *postcalc_hash(void *userdata)
 
 	pthread_detach(pthread_self());
 cycle:
-	while (entry < FOUND) {
+	while (1) {
+		if (entry == FOUND)
+			goto out;
 		if (pcd->res[entry]) {
 			nonce = pcd->res[entry++];
 			break;
 		}
 		entry++;
 	}
-	if (entry == FOUND)
-		goto out;
 
 	A = blk->cty_a; B = blk->cty_b;
 	C = blk->cty_c; D = blk->cty_d;
