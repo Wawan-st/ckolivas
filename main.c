@@ -1,4 +1,3 @@
-
 /*
  * Copyright 2011-2012 Con Kolivas
  * Copyright 2011-2012 Luke Dashjr
@@ -3883,7 +3882,7 @@ static void hashmeter(int thr_id, struct timeval *diff,
 	double utility, efficiency = 0.0;
 	static double local_mhashes_done = 0;
 	static double rolling = 0;
-	double local_mhashes = (double)hashes_done / 1000000.0;
+	double local_mhashes;
 	bool showlog = false;
 
 	/* Update the last time this thread reported in */
@@ -3893,6 +3892,8 @@ static void hashmeter(int thr_id, struct timeval *diff,
 	/* Don't bother calculating anything if we're not displaying it */
 	if (opt_realquiet || !opt_log_interval)
 		return;
+		
+	local_mhashes = (double)hashes_done / 1000000.0;
 
 	secs = (double)diff->tv_sec + ((double)diff->tv_usec / 1000000.0);
 
