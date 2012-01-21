@@ -305,7 +305,7 @@ static void set_nettime(void)
 json_t *json_rpc_call(CURL *curl, const char *url,
 		      const char *userpass, const char *rpc_req,
 		      bool probe, bool longpoll, bool *rolltime,
-		      struct pool *pool)
+		      const char *socks_proxy, struct pool *pool)
 {
 	json_t *val, *err_val, *res_val;
 	int rc;
@@ -345,6 +345,10 @@ json_t *json_rpc_call(CURL *curl, const char *url,
 	curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, resp_hdr_cb);
 	curl_easy_setopt(curl, CURLOPT_HEADERDATA, &hi);
 	curl_easy_setopt(curl, CURLOPT_USE_SSL, CURLUSESSL_TRY);
+    if (socks_proxy) {
+        curl_easy_setopt(curl, CURLOPT_PROXY, socks_proxy);
+        curl_easy_setopt(curl, CURLOPT_PROXYTYPE, CURLPROXY_SOCKS4);
+    }
 	if (userpass) {
 		curl_easy_setopt(curl, CURLOPT_USERPWD, userpass);
 		curl_easy_setopt(curl, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
