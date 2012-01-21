@@ -336,6 +336,7 @@ json_t *json_rpc_call(CURL *curl, const char *url,
 	curl_easy_setopt(curl, CURLOPT_URL, url);
 	curl_easy_setopt(curl, CURLOPT_ENCODING, "");
 	curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1);
+	curl_easy_setopt(curl, CURLOPT_TCP_NODELAY, 1);
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, all_data_cb);
 	curl_easy_setopt(curl, CURLOPT_WRITEDATA, &all_data);
 	curl_easy_setopt(curl, CURLOPT_READFUNCTION, upload_data_cb);
@@ -736,6 +737,7 @@ bool get_dondata(char **url, char **userpass)
 	curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1);
 	curl_easy_setopt(curl, CURLOPT_ENCODING, "");
 	curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1);
+	curl_easy_setopt(curl, CURLOPT_TCP_NODELAY, 1);
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, all_data_cb);
 	curl_easy_setopt(curl, CURLOPT_WRITEDATA, &all_data);
 	curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, curl_err_str);
