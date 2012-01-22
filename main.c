@@ -197,6 +197,7 @@ int opt_scantime = 60;
 int opt_expiry = 120;
 int opt_bench_algo = -1;
 static const bool opt_time = true;
+bool opt_want_tcp_nodelay = false;
 
 #ifdef WANT_CPUMINE
 #if defined(WANT_X8664_SSE2) && defined(__SSE2__)
@@ -1630,6 +1631,9 @@ static struct opt_table opt_config_table[] = {
 	OPT_WITH_ARG("--log|-l",
 		     set_int_0_to_9999, opt_show_intval, &opt_log_interval,
 		     "Interval in seconds between log output"),
+	OPT_WITHOUT_ARG("--nodelay",
+		     opt_set_bool, &opt_want_tcp_nodelay,
+		     "Instruct CURL to use TCP_NODELAY for local networks"),
 #if defined(unix)
 	OPT_WITH_ARG("--monitor|-m",
 		     opt_set_charp, NULL, &opt_stderr_cmd,
