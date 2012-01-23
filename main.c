@@ -53,6 +53,19 @@
 	#include <sys/wait.h>
 #endif
 
+#ifdef WIN32
+#define OSSTR "w"
+#endif
+#if defined(__APPLE__)
+#define OSSTR "a"
+#endif
+#ifdef __linux
+#define OSSTR "l"
+#endif
+#ifndef OSSTR
+#define OSSTR "?"
+#endif
+
 #ifdef __linux /* Linux specific policy and affinity management */
 #include <sched.h>
 static inline void drop_policy(void)
@@ -2074,7 +2087,7 @@ static void curses_print_status(void)
 	struct pool *pool = current_pool();
 
 	wattron(statuswin, A_BOLD);
-	mvwprintw(statuswin, 0, 0, " " PACKAGE " version " VERSION " - Started: %s", datestamp);
+	mvwprintw(statuswin, 0, 0, " " PACKAGE " version " VERSION " (" OSSTR ") - Started: %s", datestamp);
 #ifdef WANT_CPUMINE
 	if (opt_n_threads)
 		wprintw(statuswin, " CPU Algo: %s", algo_names[opt_algo]);
@@ -5868,7 +5881,7 @@ int main (int argc, char *argv[])
 	rwlock_init(&blk_lock);
 	rwlock_init(&netacc_lock);
 
-	sprintf(packagename, "%s %s", PACKAGE, VERSION);
+	strcpy(packagename, PACKAGE " " VERSION " (" OSSTR ")");
 
 #ifdef WANT_CPUMINE
 	init_max_name_len();
