@@ -265,6 +265,7 @@ int total_getworks, total_stale, total_discarded;
 static int total_queued;
 unsigned int new_blocks;
 static unsigned int work_block;
+static bool submit_old;
 unsigned int found_blocks;
 
 unsigned int local_work;
@@ -285,6 +286,7 @@ static bool curses_active = false;
 
 static char current_block[37];
 static char *current_hash;
+static uint32_t current_block_id;
 static char datestamp[40];
 static char blocktime[30];
 
@@ -2707,8 +2709,12 @@ static bool stale_work(struct work *work, bool share)
 	if (donor(work->pool))
 		return ret;
 
-	if (work->work_block != work_block)
+	if (work->work_block != work_block && !(submit_old && share))
 		ret = true;
+
+	if (((uint32_t*)work->data)[1] != current_block_id)
+		ret = true;
+
 	return ret;
 }
 
@@ -2941,6 +2947,7 @@ static void set_curblock(char *hexstr, unsigned char *hash)
 	 * we might be accessing its data elsewhere */
 	if (current_hash)
 		old_hash = current_hash;
+	current_block_id = ((uint32_t*)hash)[1];
 	strcpy(current_block, hexstr);
 	gettimeofday(&tv_now, NULL);
 	get_timestamp(blocktime, &tv_now);
@@ -4675,7 +4682,7 @@ static void *longpoll_thread(void *userdata)
 	CURL *curl = NULL;
 	int failures = 0;
 	bool rolltime;
-	json_t *val;
+	json_t *val, *soval;
 
 	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
 	pthread_detach(pthread_self());
@@ -4721,6 +4728,11 @@ new_longpoll:
 		val = json_rpc_call(curl, lp_url, pool->rpc_userpass, rpc_req,
 				    false, true, &rolltime, pool);
 		if (likely(val)) {
+			soval = json_object_get(json_object_get(val, "result"), "submitold");
+			if (soval)
+				submit_old = json_is_true(soval);
+			else
+				submit_old = false;
 			convert_to_work(val, rolltime, pool);
 			failures = 0;
 			json_decref(val);
