@@ -25,7 +25,7 @@
 
 #include "compat.h"
 #include "miner.h"
-#include "device-cpu.h"
+#include "device-gpu.h"
 #include "findnonce.h"
 #include "util.h"
 #include "ocl.h"
@@ -58,6 +58,12 @@ extern void decay_time(double *f, double fadd);
 
 
 /**********************************************/
+
+#ifdef HAVE_ADL
+extern float gpu_temp(int gpu);
+extern int gpu_fanspeed(int gpu);
+extern int gpu_fanpercent(int gpu);
+#endif
 
 
 #ifdef HAVE_OPENCL
