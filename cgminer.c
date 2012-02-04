@@ -641,10 +641,13 @@ static struct opt_table opt_config_table[] = {
 	OPT_WITH_ARG("--expiry|-E",
 		     set_int_0_to_9999, opt_show_intval, &opt_expiry,
 		     "Upper bound on how many seconds after getting work we consider a share from it stale"),
-#ifdef HAVE_OPENCL
 	OPT_WITHOUT_ARG("--failover-only",
 			opt_set_bool, &opt_fail_only,
 			"Don't leak work to backup pools when primary pool is lagging"),
+#ifdef HAVE_OPENCL
+	OPT_WITH_ARG("--gpu-platform",
+		     set_int_0_to_9999, opt_show_intval, &opt_platform_id,
+		     "Select OpenCL platform ID to use for GPU mining"),
 	OPT_WITH_ARG("--gpu-threads|-g",
 		     set_int_1_to_10, opt_show_intval, &opt_g_threads,
 		     "Number of threads per GPU (1 - 10)"),
@@ -938,7 +941,7 @@ static struct opt_table opt_cmdline_table[] = {
 #ifdef HAVE_OPENCL
 	OPT_WITHOUT_ARG("--ndevs|-n",
 			print_ndevs_and_exit, &nDevs,
-			"Display number of detected GPUs, OpenCL information, and exit"),
+			"Display number of detected GPUs, OpenCL platform information, and exit"),
 #endif
 	OPT_WITHOUT_ARG("--version|-V",
 			opt_version_and_exit, packagename,
@@ -1419,6 +1422,8 @@ static bool submit_upstream_work(const struct work *work)
 		cgpu->accepted++;
 		total_accepted++;
 		pool->accepted++;
+		cgpu->last_share_pool = pool->pool_no;
+		cgpu->last_share_pool_time = time(NULL);
 		if (opt_debug)
 			applog(LOG_DEBUG, "PROOF OF WORK RESULT: true (yay!!!)");
 		if (!QUIET) {
@@ -4217,12 +4222,11 @@ int main (int argc, char *argv[])
 		use_curses = false;
 
 	if (!total_pools) {
-		enable_curses();
+		if (use_curses)
+			enable_curses();
 		applog(LOG_WARNING, "Need to specify at least one pool server.");
-		if (!input_pool(false))
+		if (!use_curses || (use_curses && !input_pool(false)))
 			quit(1, "Pool setup failed");
-		if (!use_curses)
-			disable_curses();
 	}
 
 	for (i = 0; i < total_pools; i++) {
@@ -4326,7 +4330,8 @@ retry_pools:
 	}
 
 	if (!pools_active) {
-		enable_curses();
+		if (use_curses)
+			enable_curses();
 		applog(LOG_ERR, "No servers were found that could be used to get work from.");
 		applog(LOG_ERR, "Please check the details from the list below of the servers you have input");
 		applog(LOG_ERR, "Most likely you have input the wrong URL, forgotten to add a port, or have not set up workers");
@@ -4337,11 +4342,14 @@ retry_pools:
 			applog(LOG_WARNING, "Pool: %d  URL: %s  User: %s  Password: %s",
 			       i, pool->rpc_url, pool->rpc_user, pool->rpc_pass);
 		}
-		halfdelay(150);
-		applog(LOG_ERR, "Press any key to exit, or cgminer will try again in 15s.");
-		if (getch() != ERR)
+		if (use_curses) {
+			halfdelay(150);
+			applog(LOG_ERR, "Press any key to exit, or cgminer will try again in 15s.");
+			if (getch() != ERR)
+				quit(0, "No servers could be used! Exiting.");
+			nocbreak();
+		} else
 			quit(0, "No servers could be used! Exiting.");
-		nocbreak();
 		goto retry_pools;
 	}
 

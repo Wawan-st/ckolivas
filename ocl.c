@@ -29,6 +29,7 @@
 
 extern int opt_vectors;
 extern int opt_worksize;
+int opt_platform_id;
 
 char *file_contents(const char *filename, int *length)
 {
@@ -68,65 +69,59 @@ char *file_contents(const char *filename, int *length)
 	return (char*)buffer;
 }
 
-int clDevicesNum() {
+int clDevicesNum(void) {
 	cl_int status;
 	char pbuff[256];
 	cl_uint numDevices;
 	cl_uint numPlatforms;
+	cl_platform_id *platforms;
 	cl_platform_id platform = NULL;
+	unsigned int most_devices = 0, i;
 
 	status = clGetPlatformIDs(0, NULL, &numPlatforms);
 	/* If this fails, assume no GPUs. */
 	if (status != CL_SUCCESS) {
-		applog(LOG_INFO, "clGetPlatformsIDs failed (no GPU?)");
-		return 0;
+		applog(LOG_ERR, "clGetPlatformsIDs failed (no OpenCL SDK installed?)");
+		return -1;
 	}
 
-	if (numPlatforms > 0) {
-		cl_platform_id* platforms = (cl_platform_id *)malloc(numPlatforms*sizeof(cl_platform_id));
-		unsigned int i;
+	if (numPlatforms == 0) {
+		applog(LOG_ERR, "clGetPlatformsIDs returned no platforms (no OpenCL SDK installed?)");
+		return -1;
+	}
 
-		status = clGetPlatformIDs(numPlatforms, platforms, NULL);
+	platforms = (cl_platform_id *)alloca(numPlatforms*sizeof(cl_platform_id));
+	status = clGetPlatformIDs(numPlatforms, platforms, NULL);
+	if (status != CL_SUCCESS) {
+		applog(LOG_ERR, "Error: Getting Platform Ids. (clGetPlatformsIDs)");
+		return -1;
+	}
+
+	for (i = 0; i < numPlatforms; i++) {
+		status = clGetPlatformInfo( platforms[i], CL_PLATFORM_VENDOR, sizeof(pbuff), pbuff, NULL);
 		if (status != CL_SUCCESS) {
-			applog(LOG_ERR, "Error: Getting Platform Ids. (clGetPlatformsIDs)");
+			applog(LOG_ERR, "Error: Getting Platform Info. (clGetPlatformInfo)");
 			return -1;
 		}
-
-		for (i = 0; i < numPlatforms; ++i) {
-			status = clGetPlatformInfo( platforms[i], CL_PLATFORM_VENDOR, sizeof(pbuff), pbuff, NULL);
-			if (status != CL_SUCCESS) {
-				applog(LOG_ERR, "Error: Getting Platform Info. (clGetPlatformInfo)");
-				free(platforms);
-				return -1;
-			}
-			platform = platforms[i];
-			if (!strcmp(pbuff, "Advanced Micro Devices, Inc.") ||
-			    !strcmp(pbuff, "NVIDIA Corporation"))
-				break;
+		platform = platforms[i];
+		applog(LOG_INFO, "CL Platform %d vendor: %s", i, pbuff);
+		status = clGetPlatformInfo(platform, CL_PLATFORM_NAME, sizeof(pbuff), pbuff, NULL);
+		if (status == CL_SUCCESS)
+			applog(LOG_INFO, "CL Platform %d name: %s", i, pbuff);
+		status = clGetPlatformInfo(platform, CL_PLATFORM_VERSION, sizeof(pbuff), pbuff, NULL);
+		if (status == CL_SUCCESS)
+			applog(LOG_INFO, "CL Platform %d version: %s", i, pbuff);
+		status = clGetDeviceIDs(platform, CL_DEVICE_TYPE_GPU, 0, NULL, &numDevices);
+		if (status != CL_SUCCESS) {
+			applog(LOG_ERR, "Error: Getting Device IDs (num)");
+			return -1;
 		}
-		free(platforms);
+		applog(LOG_INFO, "Platform %d devices: %d", i, numDevices);
+		if (numDevices > most_devices)
+			most_devices = numDevices;
 	}
 
-	if (platform == NULL) {
-		perror("NULL platform found!\n");
-		return -1;
-	}
-
-	applog(LOG_INFO, "CL Platform vendor: %s", pbuff);
-	status = clGetPlatformInfo(platform, CL_PLATFORM_NAME, sizeof(pbuff), pbuff, NULL);
-	if (status == CL_SUCCESS)
-		applog(LOG_INFO, "CL Platform name: %s", pbuff);
-	status = clGetPlatformInfo(platform, CL_PLATFORM_VERSION, sizeof(pbuff), pbuff, NULL);
-	if (status == CL_SUCCESS)
-		applog(LOG_INFO, "CL Platform version: %s", pbuff);
-
-	status = clGetDeviceIDs(platform, CL_DEVICE_TYPE_GPU, 0, NULL, &numDevices);
-	if (status != CL_SUCCESS) {
-		applog(LOG_ERR, "Error: Getting Device IDs (num)");
-		return -1;
-	}
-
-	return numDevices;
+	return most_devices;
 }
 
 static int advance(char **area, unsigned *remaining, const char *marker)
@@ -194,11 +189,11 @@ _clState *initCl(unsigned int gpu, char *name, size_t nameSize)
 	_clState *clState = calloc(1, sizeof(_clState));
 	bool patchbfi = false, prog_built = false;
 	cl_platform_id platform = NULL;
+	cl_platform_id* platforms;
 	cl_device_id *devices;
 	cl_uint numPlatforms;
 	cl_uint numDevices;
 	char pbuff[256];
-	unsigned int i;
 	cl_int status;
 
 	status = clGetPlatformIDs(0, NULL, &numPlatforms);
@@ -207,29 +202,24 @@ _clState *initCl(unsigned int gpu, char *name, size_t nameSize)
 		return NULL;
 	}
 
-	if (numPlatforms > 0) {
-		cl_platform_id* platforms = (cl_platform_id *)malloc(numPlatforms*sizeof(cl_platform_id));
-
-		status = clGetPlatformIDs(numPlatforms, platforms, NULL);
-		if (status != CL_SUCCESS) {
-			applog(LOG_ERR, "Error: Getting Platform Ids. (clGetPlatformsIDs)");
-			return NULL;
-		}
-
-		for(i = 0; i < numPlatforms; ++i) {
-			status = clGetPlatformInfo( platforms[i], CL_PLATFORM_VENDOR, sizeof(pbuff), pbuff, NULL);
-			if (status != CL_SUCCESS) {
-				applog(LOG_ERR, "Error: Getting Platform Info. (clGetPlatformInfo)");
-				free(platforms);
-				return NULL;
-			}
-			platform = platforms[i];
-			if (!strcmp(pbuff, "Advanced Micro Devices, Inc.") ||
-			    !strcmp(pbuff, "NVIDIA Corporation"))
-				break;
-		}
-		free(platforms);
+	platforms = (cl_platform_id *)alloca(numPlatforms*sizeof(cl_platform_id));
+	status = clGetPlatformIDs(numPlatforms, platforms, NULL);
+	if (status != CL_SUCCESS) {
+		applog(LOG_ERR, "Error: Getting Platform Ids. (clGetPlatformsIDs)");
+		return NULL;
 	}
+
+	if (opt_platform_id >= numPlatforms) {
+		applog(LOG_ERR, "Specified platform that does not exist");
+		return NULL;
+	}
+
+	status = clGetPlatformInfo(platforms[opt_platform_id], CL_PLATFORM_VENDOR, sizeof(pbuff), pbuff, NULL);
+	if (status != CL_SUCCESS) {
+		applog(LOG_ERR, "Error: Getting Platform Info. (clGetPlatformInfo)");
+		return NULL;
+	}
+	platform = platforms[opt_platform_id];
 
 	if (platform == NULL) {
 		perror("NULL platform found!\n");
@@ -366,13 +356,13 @@ _clState *initCl(unsigned int gpu, char *name, size_t nameSize)
 
 	switch (chosen_kernel) {
 		case KL_POCLBM:
-			strcpy(filename, "poclbm110817.cl");
-			strcpy(binaryfilename, "poclbm110817");
+			strcpy(filename, "poclbm120203.cl");
+			strcpy(binaryfilename, "poclbm120203");
 			break;
 		case KL_NONE: /* Shouldn't happen */
 		case KL_PHATK:
-			strcpy(filename, "phatk110817.cl");
-			strcpy(binaryfilename, "phatk110817");
+			strcpy(filename, "phatk120203.cl");
+			strcpy(binaryfilename, "phatk120203");
 			break;
 	}
 

@@ -425,7 +425,7 @@ char *print_ndevs_and_exit(int *ndevs)
 	opt_log_output = true;
 	opencl_api.api_detect();
 	clear_adl(*ndevs);
-	applog(LOG_INFO, "%i GPU devices detected", *ndevs);
+	applog(LOG_INFO, "%i GPU devices max detected", *ndevs);
 	exit(*ndevs);
 }
 #endif
@@ -993,7 +993,12 @@ static bool opencl_thread_prepare(struct thr_info *thr)
 	applog(LOG_INFO, "Init GPU thread %i GPU %i virtual GPU %i", i, gpu, virtual_gpu);
 	clStates[i] = initCl(virtual_gpu, name, sizeof(name));
 	if (!clStates[i]) {
+<<<<<<< HEAD
 		enable_curses();
+=======
+		if (use_curses)
+			enable_curses();
+>>>>>>> 13fa5772adb75fd0a32bd0abe883e087492f8d25
 		applog(LOG_ERR, "Failed to init GPU thread %d, disabling device %d", i, gpu);
 		if (!failmessage) {
 			char *buf;
@@ -1001,9 +1006,17 @@ static bool opencl_thread_prepare(struct thr_info *thr)
 			applog(LOG_ERR, "Restarting the GPU from the menu will not fix this.");
 			applog(LOG_ERR, "Try restarting cgminer.");
 			failmessage = true;
+<<<<<<< HEAD
 			buf = curses_input("Press enter to continue");
 			if (buf)
 				free(buf);
+=======
+			if (use_curses) {
+				buf = curses_input("Press enter to continue");
+				if (buf)
+					free(buf);
+			}
+>>>>>>> 13fa5772adb75fd0a32bd0abe883e087492f8d25
 		}
 		cgpu->enabled = false;
 		cgpu->status = LIFE_NOSTART;

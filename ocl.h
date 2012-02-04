@@ -24,7 +24,8 @@ typedef struct {
 } _clState;
 
 extern char *file_contents(const char *filename, int *length);
-extern int clDevicesNum();
+extern int clDevicesNum(void);
 extern _clState *initCl(unsigned int gpu, char *name, size_t nameSize);
+extern int opt_platform_id;
 #endif /* HAVE_OPENCL */
 #endif /* __OCL_H__ */
