@@ -201,7 +201,7 @@ static void send_nonce(struct pc_data *pcd, cl_uint nonce)
 			applog(LOG_ERR, "Failed to submit work, exiting");
 	} else {
 		applog_debug("No best_g found! Error in OpenCL code?");
-		hw_errors++;
+		stats->hw_errors++;
 		thr->cgpu->hw_errors++;
 	}
 }
@@ -225,7 +225,7 @@ static void *postcalc_hash(void *userdata)
 
 	if (unlikely(!nonces)) {
 		applog_debug("No nonces found! Error in OpenCL code?");
-		hw_errors++;
+		stats->hw_errors++;
 		thr->cgpu->hw_errors++;
 	}
 

@@ -195,17 +195,17 @@ static const sha256_func sha256_funcs[] = {
 
 #ifdef WANT_CPUMINE
 #if defined(WANT_X8664_SSE2) && defined(__SSE2__)
-enum sha256_algos opt_algo = ALGO_SSE2_64;
+static enum sha256_algos used_algo = ALGO_SSE2_64;
 #elif defined(WANT_X8632_SSE2) && defined(__SSE2__)
-enum sha256_algos opt_algo = ALGO_SSE2_32;
+static enum sha256_algos used_algo = ALGO_SSE2_32;
 #else
-enum sha256_algos opt_algo = ALGO_C;
+static enum sha256_algos used_algo = ALGO_C;
 #endif
-bool opt_usecpu = false;
 static int cpur_thr_id;
 static bool forced_n_threads;
 #endif
 
+int num_processors;
 
 
 
@@ -661,28 +661,34 @@ static enum sha256_algos pick_fastest_algo()
 }
 
 /* FIXME: Use asprintf for better errors. */
-char *set_algo(const char *arg, enum sha256_algos *algo)
+char *set_algo(const char *arg, void *unused)
 {
 	enum sha256_algos i;
 
 	if (!strcmp(arg, "auto")) {
-		*algo = pick_fastest_algo();
+		used_algo = pick_fastest_algo();
 		return NULL;
 	}
 
 	for (i = 0; i < ARRAY_SIZE(algo_names); i++) {
 		if (algo_names[i] && !strcmp(arg, algo_names[i])) {
-			*algo = i;
+			used_algo = i;
 			return NULL;
 		}
 	}
 	return "Unknown algorithm";
 }
 
-void show_algo(char buf[OPT_SHOW_LEN], const enum sha256_algos *algo)
+void show_algo(char buf[OPT_SHOW_LEN], void *usused)
 {
-	strncpy(buf, algo_names[*algo], OPT_SHOW_LEN);
+	strncpy(buf, algo_names[used_algo], OPT_SHOW_LEN);
 }
+
+const char *get_algo(void)
+{
+	return algo_names[used_algo];
+}
+
 #endif
 
 #ifdef WANT_CPUMINE
@@ -723,21 +729,21 @@ static void cpu_detect()
 		num_processors = sysconf(_SC_NPROCESSORS_ONLN);
 	#endif /* !WIN32 */
 
-	if (opt_n_threads < 0 || !forced_n_threads) {
-		if (total_devices && !opt_usecpu)
-			opt_n_threads = 0;
+	if (opts->opt_n_threads < 0 || !forced_n_threads) {
+		if (total_devices && !opts->opt_usecpu)
+			opts->opt_n_threads = 0;
 		else
-			opt_n_threads = num_processors;
+			opts->opt_n_threads = num_processors;
 	}
 	if (num_processors < 1)
 		return;
 
-	if (total_devices + opt_n_threads > MAX_DEVICES)
-		opt_n_threads = MAX_DEVICES - total_devices;
-	cpus = calloc(opt_n_threads, sizeof(struct cgpu_info));
+	if (total_devices + opts->opt_n_threads > MAX_DEVICES)
+		opts->opt_n_threads = MAX_DEVICES - total_devices;
+	cpus = calloc(opts->opt_n_threads, sizeof(struct cgpu_info));
 	if (unlikely(!cpus))
 		quit(1, "Failed to calloc cpus");
-	for (i = 0; i < opt_n_threads; ++i) {
+	for (i = 0; i < opts->opt_n_threads; ++i) {
 		struct cgpu_info *cgpu;
 
 		cgpu = devices[total_devices + i] = &cpus[i];
@@ -746,7 +752,7 @@ static void cpu_detect()
 		cgpu->device_id = i;
 		cgpu->threads = 1;
 	}
-	total_devices += opt_n_threads;
+	total_devices += opts->opt_n_threads;
 }
 
 static void reinit_cpu_device(struct cgpu_info *cpu)
@@ -777,7 +783,7 @@ static bool cpu_thread_init(struct thr_info *thr)
 	drop_policy();
 	/* Cpu affinity only makes sense if the number of threads is a multiple
 	 * of the number of CPUs */
-	if (!(opt_n_threads % num_processors))
+	if (!(opts->opt_n_threads % num_processors))
 		affine_to_cpu(dev_from_id(thr_id), dev_from_id(thr_id) % num_processors);
 	return true;
 }
@@ -796,7 +802,7 @@ CPUSearch:
 
 	/* scan nonces for a proof-of-work hash */
 	{
-		sha256_func func = sha256_funcs[opt_algo];
+		sha256_func func = sha256_funcs[used_algo];
 		rc = (*func)(
 			thr_id,
 			work->midstate,

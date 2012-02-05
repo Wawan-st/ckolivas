@@ -21,12 +21,7 @@
 #include "adl_functions.h"
 
 bool adl_active;
-bool opt_reorder = false;
 
-int opt_hysteresis = 3;
-const int opt_targettemp = 75;
-const int opt_overheattemp = 85;
-const int opt_cutofftemp = 95;
 static pthread_mutex_t adl_lock;
 
 struct gpu_adapters {
@@ -277,7 +272,7 @@ void init_adl(int nDevs)
 	if (!devs_match) {
 		applog(LOG_ERR, "WARNING: Number of OpenCL and ADL devices does not match!");
 		applog(LOG_ERR, "Hardware monitoring may NOT match up with devices!");
-	} else if (opt_reorder) {
+	} else if (opts->opt_reorder) {
 		/* Windows has some kind of random ordering for bus number IDs and
 		 * ordering the GPUs according to ascending order fixes it. Linux
 		 * has usually sequential but decreasing order instead! */
@@ -439,17 +434,17 @@ void init_adl(int nDevs)
 
 		/* Set some default temperatures for autotune when enabled */
 		if (!ga->targettemp)
-			ga->targettemp = opt_targettemp;
+			ga->targettemp = opts->opt_targettemp;
 		if (!ga->overtemp)
-			ga->overtemp = opt_overheattemp;
+			ga->overtemp = opts->opt_overheattemp;
 		if (!ga->cutofftemp)
-			ga->cutofftemp = opt_cutofftemp;
-		if (opt_autofan) {
+			ga->cutofftemp = opts->opt_cutofftemp;
+		if (opts->opt_autofan) {
 			ga->autofan = true;
 			/* Set a safe starting default if we're automanaging fan speeds */
 			set_fanspeed(gpu, gpus[gpu].gpu_fan);
 		}
-		if (opt_autoengine) {
+		if (opts->opt_autoengine) {
 			ga->autoengine = true;
 			ga->managed = true;
 		}
@@ -975,14 +970,14 @@ static void fan_autotune(int gpu, int temp, int fanpercent, bool __maybe_unused 
 		newpercent = iMax;
 	} else if (temp > ga->targettemp && fanpercent < top && temp >= ga->lasttemp) {
 		applog_debug("Temperature over target, increasing fanspeed");
-		if (temp > ga->targettemp + opt_hysteresis)
+		if (temp > ga->targettemp + opts->opt_hysteresis)
 			newpercent = ga->targetfan + 10;
 		else
 			newpercent = ga->targetfan + 5;
 		if (newpercent > top)
 			newpercent = top;
-	} else if (fanpercent > bot && temp < ga->targettemp - opt_hysteresis && temp <= ga->lasttemp) {
-		applog_debug("Temperature %d degrees below target, decreasing fanspeed", opt_hysteresis);
+	} else if (fanpercent > bot && temp < ga->targettemp - opts->opt_hysteresis && temp <= ga->lasttemp) {
+		applog_debug("Temperature %d degrees below target, decreasing fanspeed", opts->opt_hysteresis);
 		newpercent = ga->targetfan - 1;
 	} else {
 		/* We're in the optimal range, make minor adjustments if the
@@ -990,7 +985,7 @@ static void fan_autotune(int gpu, int temp, int fanpercent, bool __maybe_unused 
 		if (fanpercent > bot && temp < ga->lasttemp && ga->lasttemp < ga->targettemp) {
 			applog_debug("Temperature dropping while in target range, decreasing fanspeed");
 			newpercent = ga->targetfan - 1;
-		} else if (fanpercent < top && temp > ga->lasttemp && temp > ga->targettemp - opt_hysteresis) {
+		} else if (fanpercent < top && temp > ga->lasttemp && temp > ga->targettemp - opts->opt_hysteresis) {
 			applog_debug("Temperature rising while in target range, increasing fanspeed");
 			newpercent = ga->targetfan + 1;
 		}
@@ -1055,8 +1050,8 @@ void gpu_autotune(int gpu, bool *enable)
 		} else if (temp > ga->overtemp && engine > ga->minspeed) {
 			applog(LOG_WARNING, "Overheat detected, decreasing GPU %d clock speed", gpu);
 			newengine = ga->minspeed;
-		} else if (temp > ga->targettemp + opt_hysteresis && engine > ga->minspeed && fan_optimal) {
-			applog_debug("Temperature %d degrees over target, decreasing clock speed", opt_hysteresis);
+		} else if (temp > ga->targettemp + opts->opt_hysteresis && engine > ga->minspeed && fan_optimal) {
+			applog_debug("Temperature %d degrees over target, decreasing clock speed", opts->opt_hysteresis);
 			newengine = engine - ga->lpOdParameters.sEngineClock.iStep;
 			/* Only try to tune engine speed up if the current performance level is at max and this GPU is not
 			 * disabled */

@@ -400,20 +400,67 @@ static inline void rwlock_init(pthread_rwlock_t *lock)
 
 struct pool;
 
-extern bool opt_debug;
-extern bool opt_protocol;
-extern bool opt_log_output;
-extern char *opt_kernel_path;
-extern char *opt_socks_proxy;
 extern char *cgminer_path;
-extern bool opt_autofan;
-extern bool opt_autoengine;
-extern bool use_curses;
-extern char *opt_api_description;
-extern int opt_api_port;
-extern bool opt_api_listen;
-extern bool opt_api_network;
-extern bool opt_delaynet;
+
+
+/* program options shared between modules */
+extern struct program_options {
+	/* Pools */
+	int	opt_expiry;
+	bool	opt_fail_only;
+	enum	pool_strategy pool_strategy;
+	bool	want_longpoll;
+	int	opt_queue;
+	int	opt_retries;
+	int	opt_fail_pause;
+	int	opt_scantime;
+	int	opt_rotate_period;
+	bool	opt_submit_stale;
+	/* API */
+	char	*opt_api_description;
+	bool	opt_api_listen;
+	bool	opt_api_network;
+	int	opt_api_port;
+	/* Logging / UI */
+	bool	opt_debug;
+	bool	opt_protocol;
+	bool	opt_log_output;
+	bool	use_curses;
+	bool	use_syslog;
+	int	opt_log_interval;
+	bool	opt_quiet;
+	bool	opt_realquiet;
+	bool	opt_loginput;
+	bool	want_per_device_stats;
+	/* CPU */
+	int	opt_n_threads;
+	bool	opt_usecpu;
+	int	opt_bench_algo;
+	/* GPU */
+	bool	opt_nogpu;
+	bool	opt_restart;
+	int	opt_platform_id;
+	int	opt_g_threads;
+	char	*opt_kernel;
+	char	*opt_kernel_path;
+	int	opt_vectors;
+	int	opt_worksize;
+	/* ADL */
+	bool	opt_noadl;
+	bool	opt_autofan;
+	bool	opt_autoengine;
+	int	opt_hysteresis;
+	int	opt_targettemp;
+	int	opt_overheattemp;
+	int	opt_cutofftemp;
+	bool	opt_reorder;
+	/* Misc */
+	bool	opt_delaynet;
+	char	*opt_socks_proxy;
+	char	*opt_stderr_cmd;
+	int	opt_shares;
+	bool	opt_removedisabled;
+} *opts;
 
 extern pthread_rwlock_t netacc_lock;
 
@@ -436,8 +483,6 @@ extern int
 timeval_subtract (struct timeval *result, struct timeval *x, struct timeval *y);
 
 extern bool fulltest(const unsigned char *hash, const unsigned char *target);
-
-extern int opt_scantime;
 
 struct work_restart {
 	volatile unsigned long	restart;
@@ -469,18 +514,29 @@ extern void api(void);
 #define MAX_INTENSITY 14
 #define _MAX_INTENSITY_STR "14"
 
+extern struct total_statistics {
+	int hw_errors;
+	double total_secs;
+	double total_mhashes_done;
+	unsigned int new_blocks;
+	unsigned int found_blocks;
+	int total_accepted;
+	int total_rejected;
+	int total_getworks;
+	int total_stale;
+	int total_discarded;
+	unsigned int local_work;
+	unsigned int total_go;
+	unsigned int total_ro;
+} *stats;
+
 extern struct list_head scan_devices;
 extern int nDevs;
-extern int opt_n_threads;
-extern int num_processors;
-extern int hw_errors;
-extern bool use_syslog;
 extern struct thr_info *thr_info;
 extern int longpoll_thr_id;
 extern struct work_restart *work_restart;
 extern struct cgpu_info gpus[MAX_GPUDEVICES];
 extern int gpu_threads;
-extern double total_secs;
 extern int mining_threads;
 extern struct cgpu_info *cpus;
 extern int total_devices;
@@ -488,18 +544,7 @@ extern struct cgpu_info *devices[];
 extern int total_pools;
 extern struct pool *pools[MAX_POOLS];
 extern const char *algo_names[];
-extern enum sha256_algos opt_algo;
 extern struct strategies strategies[];
-extern enum pool_strategy pool_strategy;
-extern int opt_rotate_period;
-extern double total_mhashes_done;
-extern unsigned int new_blocks;
-extern unsigned int found_blocks;
-extern int total_accepted, total_rejected;
-extern int total_getworks, total_stale, total_discarded;
-extern unsigned int local_work;
-extern unsigned int total_go, total_ro;
-extern int opt_log_interval;
 
 #ifdef HAVE_OPENCL
 typedef struct {

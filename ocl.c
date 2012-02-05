@@ -27,9 +27,6 @@
 #include "findnonce.h"
 #include "ocl.h"
 
-extern int opt_vectors;
-extern int opt_worksize;
-int opt_platform_id;
 
 char *file_contents(const char *filename, int *length)
 {
@@ -37,7 +34,7 @@ char *file_contents(const char *filename, int *length)
 	void *buffer;
 	FILE *f;
 
-	strcpy(fullpath, opt_kernel_path);
+	strcpy(fullpath, opts->opt_kernel_path);
 	strcat(fullpath, filename);
 
 	/* Try in the optional kernel path or installed prefix first */
@@ -206,17 +203,17 @@ _clState *initCl(unsigned int gpu, char *name, size_t nameSize)
 		return NULL;
 	}
 
-	if (opt_platform_id >= numPlatforms) {
+	if (opts->opt_platform_id >= numPlatforms) {
 		applog(LOG_ERR, "Specified platform that does not exist");
 		return NULL;
 	}
 
-	status = clGetPlatformInfo(platforms[opt_platform_id], CL_PLATFORM_VENDOR, sizeof(pbuff), pbuff, NULL);
+	status = clGetPlatformInfo(platforms[opts->opt_platform_id], CL_PLATFORM_VENDOR, sizeof(pbuff), pbuff, NULL);
 	if (status != CL_SUCCESS) {
 		applog(LOG_ERR, "Error: Getting Platform Info. (clGetPlatformInfo)");
 		return NULL;
 	}
-	platform = platforms[opt_platform_id];
+	platform = platforms[opts->opt_platform_id];
 
 	if (platform == NULL) {
 		perror("NULL platform found!\n");
@@ -325,10 +322,10 @@ _clState *initCl(unsigned int gpu, char *name, size_t nameSize)
 			clState->preferred_vwidth = 2;
 	}
 
-	if (opt_vectors)
-		clState->preferred_vwidth = opt_vectors;
-	if (opt_worksize && opt_worksize <= clState->max_work_size)
-		clState->work_size = opt_worksize;
+	if (opts->opt_vectors)
+		clState->preferred_vwidth = opts->opt_vectors;
+	if (opts->opt_worksize && opts->opt_worksize <= clState->max_work_size)
+		clState->work_size = opts->opt_worksize;
 	else
 		clState->work_size = (clState->max_work_size <= 256 ? clState->max_work_size : 256) /
 				clState->preferred_vwidth;
