@@ -60,30 +60,6 @@ void *alloca (size_t);
  #include "ADL_SDK/adl_sdk.h"
 #endif
 
-#ifdef __SSE2__
-#define WANT_SSE2_4WAY 1
-#endif
-
-#ifdef __ALTIVEC__
-#define WANT_ALTIVEC_4WAY 1
-#endif
-
-#if defined(__i386__) && defined(HAS_YASM) && defined(__SSE2__)
-#define WANT_X8632_SSE2 1
-#endif
-
-#if (defined(__i386__) || defined(__x86_64__)) &&  !defined(__APPLE__)
-#define WANT_VIA_PADLOCK 1
-#endif
-
-#if defined(__x86_64__) && defined(HAS_YASM)
-#define WANT_X8664_SSE2 1
-#endif
-
-#if defined(__x86_64__) && defined(HAS_YASM)
-#define WANT_X8664_SSE4 1
-#endif
-
 #if !defined(WIN32) && ((__GNUC__ > 4) || (__GNUC__ == 4 && __GNUC_MINOR__ >= 3))
 #define bswap_16 __builtin_bswap16
 #define bswap_32 __builtin_bswap32
@@ -156,19 +132,6 @@ enum {
 #ifndef ARRAY_SIZE
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 #endif
-
-enum sha256_algos {
-	ALGO_C,			/* plain C */
-	ALGO_4WAY,		/* parallel SSE2 */
-	ALGO_VIA,		/* VIA padlock */
-	ALGO_CRYPTOPP,		/* Crypto++ (C) */
-	ALGO_CRYPTOPP_ASM32,	/* Crypto++ 32-bit assembly */
-	ALGO_SSE2_32,		/* SSE2 for x86_32 */
-	ALGO_SSE2_64,		/* SSE2 for x86_64 */
-	ALGO_SSE4_64,		/* SSE4 for x86_64 */
-	ALGO_ALTIVEC_4WAY,	/* parallel Altivec */
-};
-
 
 enum alive {
 	LIFE_WELL,
@@ -437,20 +400,67 @@ static inline void rwlock_init(pthread_rwlock_t *lock)
 
 struct pool;
 
-extern bool opt_debug;
-extern bool opt_protocol;
-extern bool opt_log_output;
-extern char *opt_kernel_path;
-extern char *opt_socks_proxy;
 extern char *cgminer_path;
-extern bool opt_autofan;
-extern bool opt_autoengine;
-extern bool use_curses;
-extern char *opt_api_description;
-extern int opt_api_port;
-extern bool opt_api_listen;
-extern bool opt_api_network;
-extern bool opt_delaynet;
+
+
+/* program options shared between modules */
+extern struct program_options {
+	/* Pools */
+	int	opt_expiry;
+	bool	opt_fail_only;
+	enum	pool_strategy pool_strategy;
+	bool	want_longpoll;
+	int	opt_queue;
+	int	opt_retries;
+	int	opt_fail_pause;
+	int	opt_scantime;
+	int	opt_rotate_period;
+	bool	opt_submit_stale;
+	/* API */
+	char	*opt_api_description;
+	bool	opt_api_listen;
+	bool	opt_api_network;
+	int	opt_api_port;
+	/* Logging / UI */
+	bool	opt_debug;
+	bool	opt_protocol;
+	bool	opt_log_output;
+	bool	use_curses;
+	bool	use_syslog;
+	int	opt_log_interval;
+	bool	opt_quiet;
+	bool	opt_realquiet;
+	bool	opt_loginput;
+	bool	want_per_device_stats;
+	/* CPU */
+	int	opt_n_threads;
+	bool	opt_usecpu;
+	int	opt_bench_algo;
+	/* GPU */
+	bool	opt_nogpu;
+	bool	opt_restart;
+	int	opt_platform_id;
+	int	opt_g_threads;
+	char	*opt_kernel;
+	char	*opt_kernel_path;
+	int	opt_vectors;
+	int	opt_worksize;
+	/* ADL */
+	bool	opt_noadl;
+	bool	opt_autofan;
+	bool	opt_autoengine;
+	int	opt_hysteresis;
+	int	opt_targettemp;
+	int	opt_overheattemp;
+	int	opt_cutofftemp;
+	bool	opt_reorder;
+	/* Misc */
+	bool	opt_delaynet;
+	char	*opt_socks_proxy;
+	char	*opt_stderr_cmd;
+	int	opt_shares;
+	bool	opt_removedisabled;
+} *opts;
 
 extern pthread_rwlock_t netacc_lock;
 
@@ -469,62 +479,10 @@ typedef bool (*sha256_func)(int thr_id, const unsigned char *pmidstate,
 	uint32_t *last_nonce,
 	uint32_t nonce);
 
-extern bool ScanHash_4WaySSE2(int, const unsigned char *pmidstate,
-	unsigned char *pdata, unsigned char *phash1, unsigned char *phash,
-	const unsigned char *ptarget,
-	uint32_t max_nonce, uint32_t *last_nonce, uint32_t nonce);
-
-extern bool ScanHash_altivec_4way(int thr_id, const unsigned char *pmidstate,
-	unsigned char *pdata,
-	unsigned char *phash1, unsigned char *phash,
-	const unsigned char *ptarget,
-	uint32_t max_nonce, uint32_t *last_nonce, uint32_t nonce);
-
-extern bool scanhash_via(int, const unsigned char *pmidstate,
-	unsigned char *pdata,
-	unsigned char *phash1, unsigned char *phash,
-	const unsigned char *target,
-	uint32_t max_nonce, uint32_t *last_nonce, uint32_t n);
-
-extern bool scanhash_c(int, const unsigned char *midstate, unsigned char *data,
-	      unsigned char *hash1, unsigned char *hash,
-	      const unsigned char *target,
-	      uint32_t max_nonce, uint32_t *last_nonce, uint32_t n);
-
-extern bool scanhash_cryptopp(int, const unsigned char *midstate,unsigned char *data,
-	      unsigned char *hash1, unsigned char *hash,
-	      const unsigned char *target,
-	      uint32_t max_nonce, uint32_t *last_nonce, uint32_t n);
-
-extern bool scanhash_asm32(int, const unsigned char *midstate,unsigned char *data,
-	      unsigned char *hash1, unsigned char *hash,
-	      const unsigned char *target,
-	      uint32_t max_nonce, uint32_t *last_nonce, uint32_t nonce);
-
-extern bool scanhash_sse2_64(int, const unsigned char *pmidstate, unsigned char *pdata,
-	unsigned char *phash1, unsigned char *phash,
-	const unsigned char *ptarget,
-	uint32_t max_nonce, uint32_t *last_nonce,
-	uint32_t nonce);
-
-extern bool scanhash_sse4_64(int, const unsigned char *pmidstate, unsigned char *pdata,
-	unsigned char *phash1, unsigned char *phash,
-	const unsigned char *ptarget,
-	uint32_t max_nonce, uint32_t *last_nonce,
-	uint32_t nonce);
-
-extern bool scanhash_sse2_32(int, const unsigned char *pmidstate, unsigned char *pdata,
-	unsigned char *phash1, unsigned char *phash,
-	const unsigned char *ptarget,
-	uint32_t max_nonce, uint32_t *last_nonce,
-	uint32_t nonce);
-
 extern int
 timeval_subtract (struct timeval *result, struct timeval *x, struct timeval *y);
 
 extern bool fulltest(const unsigned char *hash, const unsigned char *target);
-
-extern int opt_scantime;
 
 struct work_restart {
 	volatile unsigned long	restart;
@@ -538,9 +496,6 @@ extern void kill_work(void);
 extern void reinit_device(struct cgpu_info *cgpu);
 
 #ifdef HAVE_ADL
-extern float gpu_temp(int gpu);
-extern int gpu_fanspeed(int gpu);
-extern int gpu_fanpercent(int gpu);
 extern bool gpu_stats(int gpu, float *temp, int *engineclock, int *memclock, float *vddc, int *activity, int *fanspeed, int *fanpercent, int *powertune);
 extern int set_fanspeed(int gpu, int iFanSpeed);
 extern int set_vddc(int gpu, float fVddc);
@@ -559,18 +514,29 @@ extern void api(void);
 #define MAX_INTENSITY 14
 #define _MAX_INTENSITY_STR "14"
 
+extern struct total_statistics {
+	int hw_errors;
+	double total_secs;
+	double total_mhashes_done;
+	unsigned int new_blocks;
+	unsigned int found_blocks;
+	int total_accepted;
+	int total_rejected;
+	int total_getworks;
+	int total_stale;
+	int total_discarded;
+	unsigned int local_work;
+	unsigned int total_go;
+	unsigned int total_ro;
+} *stats;
+
 extern struct list_head scan_devices;
 extern int nDevs;
-extern int opt_n_threads;
-extern int num_processors;
-extern int hw_errors;
-extern bool use_syslog;
 extern struct thr_info *thr_info;
 extern int longpoll_thr_id;
 extern struct work_restart *work_restart;
 extern struct cgpu_info gpus[MAX_GPUDEVICES];
 extern int gpu_threads;
-extern double total_secs;
 extern int mining_threads;
 extern struct cgpu_info *cpus;
 extern int total_devices;
@@ -578,18 +544,7 @@ extern struct cgpu_info *devices[];
 extern int total_pools;
 extern struct pool *pools[MAX_POOLS];
 extern const char *algo_names[];
-extern enum sha256_algos opt_algo;
 extern struct strategies strategies[];
-extern enum pool_strategy pool_strategy;
-extern int opt_rotate_period;
-extern double total_mhashes_done;
-extern unsigned int new_blocks;
-extern unsigned int found_blocks;
-extern int total_accepted, total_rejected;
-extern int total_getworks, total_stale, total_discarded;
-extern unsigned int local_work;
-extern unsigned int total_go, total_ro;
-extern int opt_log_interval;
 
 #ifdef HAVE_OPENCL
 typedef struct {
@@ -697,5 +652,9 @@ extern void tq_thaw(struct thread_q *tq);
 extern bool successful_connect;
 extern enum cl_kernel chosen_kernel;
 extern void adl(void);
+
+/* print debug message if debug option is set */
+extern void applog_debug(const char *fmt, ...);
+
 
 #endif /* __MINER_H__ */

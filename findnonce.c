@@ -16,9 +16,7 @@
 #include <pthread.h>
 #include <string.h>
 
-#include "ocl.h"
 #include "findnonce.h"
-#include "miner.h"
 
 const uint32_t SHA256_K[64] = {
 	0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5,
@@ -202,9 +200,8 @@ static void send_nonce(struct pc_data *pcd, cl_uint nonce)
 		if (unlikely(submit_nonce(thr, work, nonce) == false))
 			applog(LOG_ERR, "Failed to submit work, exiting");
 	} else {
-		if (opt_debug)
-			applog(LOG_DEBUG, "No best_g found! Error in OpenCL code?");
-		hw_errors++;
+		applog_debug("No best_g found! Error in OpenCL code?");
+		stats->hw_errors++;
 		thr->cgpu->hw_errors++;
 	}
 }
@@ -227,9 +224,8 @@ static void *postcalc_hash(void *userdata)
 	free(pcd);
 
 	if (unlikely(!nonces)) {
-		if (opt_debug)
-			applog(LOG_DEBUG, "No nonces found! Error in OpenCL code?");
-		hw_errors++;
+		applog_debug("No nonces found! Error in OpenCL code?");
+		stats->hw_errors++;
 		thr->cgpu->hw_errors++;
 	}
 
