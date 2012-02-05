@@ -608,4 +608,8 @@ extern bool successful_connect;
 extern enum cl_kernel chosen_kernel;
 extern void adl(void);
 
+/* print debug message if debug option is set */
+extern void applog_debug(const char *fmt, ...);
+
+
 #endif /* __MINER_H__ */

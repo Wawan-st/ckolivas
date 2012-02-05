@@ -129,8 +129,7 @@ static int advance(char **area, unsigned *remaining, const char *marker)
 	char *find = memmem(*area, *remaining, marker, strlen(marker));
 
 	if (!find) {
-		if (opt_debug)
-			applog(LOG_DEBUG, "Marker \"%s\" not found", marker);
+		applog_debug("Marker \"%s\" not found", marker);
 		return 0;
 	}
 	*remaining -= find - *area;
@@ -176,12 +175,10 @@ void patch_opcodes(char *w, unsigned remaining)
 		opcode++;
 		remaining -= 8;
 	}
-	if (opt_debug) {
-		applog(LOG_DEBUG, "Potential OP3 instructions identified: "
-			"%i BFE_INT, %i BFE_UINT, %i BYTE_ALIGN",
-			count_bfe_int, count_bfe_uint, count_byte_align);
-		applog(LOG_DEBUG, "Patched a total of %i BFI_INT instructions", patched);
-	}
+	applog_debug("Potential OP3 instructions identified: "
+		     "%i BFE_INT, %i BFE_UINT, %i BYTE_ALIGN",
+		     count_bfe_int, count_bfe_uint, count_byte_align);
+	applog_debug("Patched a total of %i BFI_INT instructions", patched);
 }
 
 _clState *initCl(unsigned int gpu, char *name, size_t nameSize)
@@ -308,16 +305,14 @@ _clState *initCl(unsigned int gpu, char *name, size_t nameSize)
 		applog(LOG_ERR, "Error: Failed to clGetDeviceInfo when trying to get CL_DEVICE_PREFERRED_VECTOR_WIDTH_INT");
 		return NULL;
 	}
-	if (opt_debug)
-		applog(LOG_DEBUG, "Preferred vector width reported %d", clState->preferred_vwidth);
+	applog_debug("Preferred vector width reported %d", clState->preferred_vwidth);
 
 	status = clGetDeviceInfo(devices[gpu], CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(size_t), (void *)&clState->max_work_size, NULL);
 	if (status != CL_SUCCESS) {
 		applog(LOG_ERR, "Error: Failed to clGetDeviceInfo when trying to get CL_DEVICE_MAX_WORK_GROUP_SIZE");
 		return NULL;
 	}
-	if (opt_debug)
-		applog(LOG_DEBUG, "Max work group size reported %d", clState->max_work_size);
+	applog_debug("Max work group size reported %d", clState->max_work_size);
 
 	/* For some reason 2 vectors is still better even if the card says
 	 * otherwise, and many cards lie about their max so use 256 as max
@@ -404,14 +399,12 @@ _clState *initCl(unsigned int gpu, char *name, size_t nameSize)
 
 	binaryfile = fopen(binaryfilename, "rb");
 	if (!binaryfile) {
-		if (opt_debug)
-			applog(LOG_DEBUG, "No binary found, generating from source");
+		applog_debug("No binary found, generating from source");
 	} else {
 		struct stat binary_stat;
 
 		if (unlikely(stat(binaryfilename, &binary_stat))) {
-			if (opt_debug)
-				applog(LOG_DEBUG, "Unable to stat binary, generating from source");
+			applog_debug("Unable to stat binary, generating from source");
 			fclose(binaryfile);
 			goto build;
 		}
@@ -441,8 +434,7 @@ _clState *initCl(unsigned int gpu, char *name, size_t nameSize)
 			goto build;
 		}
 		fclose(binaryfile);
-		if (opt_debug)
-			applog(LOG_DEBUG, "Loaded binary image %s", binaryfilename);
+		applog_debug("Loaded binary image %s", binaryfilename);
 
 		/* We don't need to patch this already loaded image, but need to
 		 * set the flag for status later */
@@ -475,15 +467,13 @@ build:
 
 	sprintf(CompilerOptions, "-D WORKSIZE=%d -D VECTORS%d",
 		(int)clState->work_size, clState->preferred_vwidth);
-	if (opt_debug)
-		applog(LOG_DEBUG, "Setting worksize to %d", clState->work_size);
-	if (clState->preferred_vwidth > 1 && opt_debug)
-		applog(LOG_DEBUG, "Patched source to suit %d vectors", clState->preferred_vwidth);
+	applog_debug("Setting worksize to %d", clState->work_size);
+	if (clState->preferred_vwidth > 1)
+		applog_debug("Patched source to suit %d vectors", clState->preferred_vwidth);
 
 	if (clState->hasBitAlign) {
 		strcat(CompilerOptions, " -D BITALIGN");
-		if (opt_debug)
-			applog(LOG_DEBUG, "cl_amd_media_ops found, setting BITALIGN");
+		applog_debug("cl_amd_media_ops found, setting BITALIGN");
 		if (strstr(name, "Cedar") ||
 		    strstr(name, "Redwood") ||
 		    strstr(name, "Juniper") ||
@@ -499,18 +489,16 @@ build:
 		    strstr(name, "WinterPark" ) ||
 		    strstr(name, "BeaverCreek" ))
 			patchbfi = true;
-	} else if (opt_debug)
-		applog(LOG_DEBUG, "cl_amd_media_ops not found, will not set BITALIGN");
+	} else
+		applog_debug("cl_amd_media_ops not found, will not set BITALIGN");
 
 	if (patchbfi) {
 		strcat(CompilerOptions, " -D BFI_INT");
-		if (opt_debug)
-			applog(LOG_DEBUG, "BFI_INT patch requiring device found, patched source with BFI_INT");
-	} else if (opt_debug)
-		applog(LOG_DEBUG, "BFI_INT patch requiring device not found, will not BFI_INT patch");
+		applog_debug("BFI_INT patch requiring device found, patched source with BFI_INT");
+	} else
+		applog_debug("BFI_INT patch requiring device not found, will not BFI_INT patch");
 
-	if (opt_debug)
-		applog(LOG_DEBUG, "CompilerOptions: %s", CompilerOptions);
+	applog_debug("CompilerOptions: %s", CompilerOptions);
 	status = clBuildProgram(clState->program, 1, &devices[gpu], CompilerOptions , NULL, NULL);
 	free(CompilerOptions);
 
@@ -534,8 +522,7 @@ build:
 	}
 
 	/* copy over all of the generated binaries. */
-	if (opt_debug)
-		applog(LOG_DEBUG, "binary size %d : %d", gpu, binary_sizes[gpu]);
+	applog_debug("binary size %d : %d", gpu, binary_sizes[gpu]);
 	if (!binary_sizes[gpu]) {
 		applog(LOG_ERR, "OpenCL compiler generated a zero sized binary, may need to reboot!");
 		return NULL;
@@ -577,8 +564,7 @@ build:
 		}
 		w--; remaining++;
 		w += start; remaining -= start;
-		if (opt_debug)
-			applog(LOG_DEBUG, "At %p (%u rem. bytes), to begin patching",
+		applog_debug("At %p (%u rem. bytes), to begin patching",
 				w, remaining);
 		patch_opcodes(w, length);
 
@@ -610,8 +596,7 @@ build:
 	binaryfile = fopen(binaryfilename, "wb");
 	if (!binaryfile) {
 		/* Not a fatal problem, just means we build it again next time */
-		if (opt_debug)
-			applog(LOG_DEBUG, "Unable to create file %s", binaryfilename);
+		applog_debug("Unable to create file %s", binaryfilename);
 	} else {
 		if (unlikely(fwrite(binaries[gpu], 1, binary_sizes[gpu], binaryfile) != binary_sizes[gpu])) {
 			applog(LOG_ERR, "Unable to fwrite to binaryfile");

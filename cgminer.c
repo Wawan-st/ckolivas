@@ -304,6 +304,17 @@ static void applog_and_exit(const char *fmt, ...)
 	exit(1);
 }
 
+void applog_debug(const char *fmt, ...)
+{
+	if (opt_debug) {
+		va_list ap;
+
+		va_start(ap, fmt);
+		vapplog(LOG_DEBUG, fmt, ap);
+		va_end(ap);
+	}
+}
+
 static void add_pool(void)
 {
 	struct pool *pool;
@@ -1351,8 +1362,7 @@ static bool submit_upstream_work(const struct work *work)
 	      "{\"method\": \"getwork\", \"params\": [ \"%s\" ], \"id\":1}",
 		hexstr);
 
-	if (opt_debug)
-		applog(LOG_DEBUG, "DBG: sending %s submit RPC call: %s", pool->rpc_url, sd);
+	applog_debug("DBG: sending %s submit RPC call: %s", pool->rpc_url, sd);
 
 	/* Force a fresh connection in case there are dead persistent
 	 * connections to this pool */
@@ -1393,8 +1403,7 @@ static bool submit_upstream_work(const struct work *work)
 		pool->accepted++;
 		cgpu->last_share_pool = pool->pool_no;
 		cgpu->last_share_pool_time = time(NULL);
-		if (opt_debug)
-			applog(LOG_DEBUG, "PROOF OF WORK RESULT: true (yay!!!)");
+		applog_debug("PROOF OF WORK RESULT: true (yay!!!)");
 		if (!QUIET) {
 			if (total_pools > 1)
 				applog(LOG_NOTICE, "Accepted %s %s %d thread %d pool %d",
@@ -1412,8 +1421,7 @@ static bool submit_upstream_work(const struct work *work)
 		cgpu->rejected++;
 		total_rejected++;
 		pool->rejected++;
-		if (opt_debug)
-			applog(LOG_DEBUG, "PROOF OF WORK RESULT: false (booooo)");
+		applog_debug("PROOF OF WORK RESULT: false (booooo)");
 		if (!QUIET) {
 			if (total_pools > 1)
 				applog(LOG_NOTICE, "Rejected %s %s %d thread %d pool %d",
@@ -1488,8 +1496,7 @@ static bool get_upstream_work(struct work *work, bool lagging)
 	}
 
 	pool = select_pool(lagging);
-	if (opt_debug)
-		applog(LOG_DEBUG, "DBG: sending %s get RPC call: %s", pool->rpc_url, rpc_req);
+	applog_debug("DBG: sending %s get RPC call: %s", pool->rpc_url, rpc_req);
 
 retry:
 	/* A single failure response here might be reported as a dead pool and
@@ -1594,39 +1601,33 @@ void kill_work(void)
 	disable_curses();
 	applog(LOG_INFO, "Received kill message");
 
-	if (opt_debug)
-		applog(LOG_DEBUG, "Killing off watchdog thread");
+	applog_debug("Killing off watchdog thread");
 	/* Kill the watchdog thread */
 	thr = &thr_info[watchdog_thr_id];
 	thr_info_cancel(thr);
 
-	if (opt_debug)
-		applog(LOG_DEBUG, "Killing off mining threads");
+	applog_debug("Killing off mining threads");
 	/* Stop the mining threads*/
 	for (i = 0; i < mining_threads; i++) {
 		thr = &thr_info[i];
 		thr_info_cancel(thr);
 	}
 
-	if (opt_debug)
-		applog(LOG_DEBUG, "Killing off stage thread");
+	applog_debug("Killing off stage thread");
 	/* Stop the others */
 	thr = &thr_info[stage_thr_id];
 	thr_info_cancel(thr);
 
-	if (opt_debug)
-		applog(LOG_DEBUG, "Killing off longpoll thread");
+	applog_debug("Killing off longpoll thread");
 	thr = &thr_info[longpoll_thr_id];
 	if (have_longpoll)
 		thr_info_cancel(thr);
 
-	if (opt_debug)
-		applog(LOG_DEBUG, "Killing off work thread");
+	applog_debug("Killing off work thread");
 	thr = &thr_info[work_thr_id];
 	thr_info_cancel(thr);
 
-	if (opt_debug)
-		applog(LOG_DEBUG, "Killing off API thread");
+	applog_debug("Killing off API thread");
 	thr = &thr_info[api_thr_id];
 	thr_info_cancel(thr);
 }
@@ -1674,8 +1675,7 @@ static void *get_work_thread(void *userdata)
 	}
 	fail_pause = opt_fail_pause;
 
-	if (opt_debug)
-		applog(LOG_DEBUG, "Pushing work to requesting thread");
+	applog_debug("Pushing work to requesting thread");
 
 	/* send work to requesting thread */
 	if (unlikely(!tq_push(thr_info[stage_thr_id].q, ret_work))) {
@@ -1859,10 +1859,9 @@ static void discard_work(struct work *work)
 		if (work->pool)
 			work->pool->discarded_work++;
 		total_discarded++;
-		if (opt_debug)
-			applog(LOG_DEBUG, "Discarded work");
-	} else if (opt_debug)
-		applog(LOG_DEBUG, "Discarded cloned or rolled work");
+		applog_debug("Discarded work");
+	} else
+		applog_debug("Discarded cloned or rolled work");
 	free_work(work);
 }
 
@@ -1910,8 +1909,7 @@ static int discard_stale(void)
 	}
 	mutex_unlock(stgd_lock);
 
-	if (opt_debug)
-		applog(LOG_DEBUG, "Discarded %d stales that didn't match current hash", stale);
+	applog_debug("Discarded %d stales that didn't match current hash", stale);
 
 	/* Dec queued outside the loop to not have recursive locks */
 	for (i = 0; i < stale; i++)
@@ -2060,8 +2058,7 @@ static void *stage_thread(void *userdata)
 	while (ok) {
 		struct work *work = NULL;
 
-		if (opt_debug)
-			applog(LOG_DEBUG, "Popping work to stage thread");
+		applog_debug("Popping work to stage thread");
 
 		work = tq_pop(mythr->q, NULL);
 		if (unlikely(!work)) {
@@ -2073,8 +2070,7 @@ static void *stage_thread(void *userdata)
 
 		test_work_current(work, false);
 
-		if (opt_debug)
-			applog(LOG_DEBUG, "Pushing work to getwork queue");
+		applog_debug("Pushing work to getwork queue");
 
 		if (unlikely(!hash_push(work))) {
 			applog(LOG_WARNING, "Failed to hash_push in stage_thread");
@@ -2637,8 +2633,7 @@ static void *workio_thread(void *userdata)
 	while (ok) {
 		struct workio_cmd *wc;
 
-		if (opt_debug)
-			applog(LOG_DEBUG, "Popping work to work thread");
+		applog_debug("Popping work to work thread");
 
 		/* wait for workio_cmd sent to us, on our queue */
 		wc = tq_pop(mythr->q, NULL);
@@ -2721,8 +2716,7 @@ static void hashmeter(int thr_id, struct timeval *diff,
 		double thread_rolling = 0.0;
 		int i;
 
-		if (opt_debug)
-			applog(LOG_DEBUG, "[thread %d: %lu hashes, %.0f khash/sec]",
+		applog_debug("[thread %d: %lu hashes, %.0f khash/sec]",
 				thr_id, hashes_done, hashes_done / secs);
 
 		/* Rolling average for each thread and each device */
@@ -2826,8 +2820,7 @@ static bool pool_active(struct pool *pool, bool pinging)
 			       pool->pool_no, pool->rpc_url);
 			work->pool = pool;
 			work->rolltime = rolltime;
-			if (opt_debug)
-				applog(LOG_DEBUG, "Pushing pooltest work to base pool");
+			applog_debug("Pushing pooltest work to base pool");
 
 			tq_push(thr_info[stage_thr_id].q, work);
 			total_getworks++;
@@ -2905,8 +2898,7 @@ static bool queue_request(struct thr_info *thr, bool needed)
 	if (rq && needed && !requests_staged() && !opt_fail_only)
 		wc->lagging = true;
 
-	if (opt_debug)
-		applog(LOG_DEBUG, "Queueing getwork request to work thread");
+	applog_debug("Queueing getwork request to work thread");
 
 	/* send work request to workio thread */
 	if (unlikely(!tq_push(thr_info[work_thr_id].q, wc))) {
@@ -2969,8 +2961,7 @@ static void roll_work(struct work *work)
 	local_work++;
 	work->rolls++;
 	work->blk.nonce = 0;
-	if (opt_debug)
-		applog(LOG_DEBUG, "Successfully rolled work");
+	applog_debug("Successfully rolled work");
 }
 
 static bool divide_work(struct work *work)
@@ -3022,8 +3013,7 @@ retry:
 	gettimeofday(&now, NULL);
 	abstime.tv_sec = now.tv_sec + 60;
 
-	if (opt_debug)
-		applog(LOG_DEBUG, "Popping work from get queue to get work");
+	applog_debug("Popping work from get queue to get work");
 
 	/* wait for 1st response, or get cached response */
 	work_heap = hash_pop(&abstime);
@@ -3053,8 +3043,7 @@ retry:
 	 * should we divide the same work up again. Make the work we're
 	 * handing out be clone */
 	if (divide_work(work_heap)) {
-		if (opt_debug)
-			applog(LOG_DEBUG, "Pushing divided work to get queue head");
+		applog_debug("Pushing divided work to get queue head");
 
 		hash_push(work_heap);
 		work->clone = true;
@@ -3100,8 +3089,7 @@ bool submit_work_sync(struct thr_info *thr, const struct work *work_in)
 	wc->thr = thr;
 	memcpy(wc->u.work, work_in, sizeof(*work_in));
 
-	if (opt_debug)
-		applog(LOG_DEBUG, "Pushing submit work to work thread");
+	applog_debug("Pushing submit work to work thread");
 
 	/* send solution to workio thread */
 	if (unlikely(!tq_push(thr_info[work_thr_id].q, wc))) {
@@ -3189,8 +3177,7 @@ void *miner_thread(void *userdata)
 	if (api->thread_init && !api->thread_init(mythr))
 		goto out;
 
-	if (opt_debug)
-		applog(LOG_DEBUG, "Popping ping in miner thread");
+	applog_debug("Popping ping in miner thread");
 	tq_pop(mythr->q, NULL); /* Wait for a ping to start */
 
 	sdiff.tv_sec = sdiff.tv_usec = 0;
@@ -3289,8 +3276,7 @@ void *miner_thread(void *userdata)
 			if (unlikely(mythr->pause || !cgpu->enabled)) {
 				applog(LOG_WARNING, "Thread %d being disabled", thr_id);
 				mythr->rolling = mythr->cgpu->rolling = 0;
-				if (opt_debug)
-					applog(LOG_DEBUG, "Popping wakeup ping in miner thread");
+				applog_debug("Popping wakeup ping in miner thread");
 				thread_reportout(mythr);
 				tq_pop(mythr->q, NULL); /* Ignore ping that's popped */
 				thread_reportin(mythr);
@@ -3342,13 +3328,12 @@ static void convert_to_work(json_t *val, bool rolltime, struct pool *pool)
 	 * allows testwork to know whether LP discovered the block or not. */
 	test_work_current(work, true);
 
-	if (opt_debug)
-		applog(LOG_DEBUG, "Pushing converted work to stage thread");
+	applog_debug("Pushing converted work to stage thread");
 
 	if (unlikely(!tq_push(thr_info[stage_thr_id].q, work)))
 		applog(LOG_ERR, "Could not tq_push work in convert_to_work");
-	else if (opt_debug)
-		applog(LOG_DEBUG, "Converted longpoll data to work");
+	else
+		applog_debug("Converted longpoll data to work");
 }
 
 /* If we want longpoll, enable it for the chosen default pool, or, if
@@ -3480,8 +3465,7 @@ static void start_longpoll(void)
 	tq_thaw(thr->q);
 	if (unlikely(thr_info_create(thr, NULL, longpoll_thread, thr)))
 		quit(1, "longpoll thread create failed");
-	if (opt_debug)
-		applog(LOG_DEBUG, "Pushing ping to longpoll thread");
+	applog_debug("Pushing ping to longpoll thread");
 	tq_push(thr_info[longpoll_thr_id].q, &ping);
 }
 
@@ -4312,8 +4296,7 @@ retry_pools:
 			/* Enable threads for devices set not to mine but disable
 			 * their queue in case we wish to enable them later */
 			if (cgpu->enabled) {
-				if (opt_debug)
-					applog(LOG_DEBUG, "Pushing ping to thread %d", thr->id);
+				applog_debug("Pushing ping to thread %d", thr->id);
 
 				tq_push(thr->q, &ping);
 			}

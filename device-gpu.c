@@ -593,8 +593,7 @@ retry:
 				gpus[selected].enabled = false;
 				goto retry;
 			}
-			if (opt_debug)
-				applog(LOG_DEBUG, "Pushing ping to thread %d", thr->id);
+			applog_debug("Pushing ping to thread %d", thr->id);
 
 			tq_push(thr->q, &ping);
 		}
@@ -1153,13 +1152,11 @@ static uint64_t opencl_scanhash(struct thr_info *thr, struct work *work,
 			return 0;
 		}
 		if (unlikely(thrdata->last_work)) {
-			if (opt_debug)
-				applog(LOG_DEBUG, "GPU %d found something in last work?", gpu->device_id);
+			applog_debug("GPU %d found something in last work?", gpu->device_id);
 			postcalc_hash_async(thr, thrdata->last_work, thrdata->res);
 			thrdata->last_work = NULL;
 		} else {
-			if (opt_debug)
-				applog(LOG_DEBUG, "GPU %d found something?", gpu->device_id);
+			applog_debug("GPU %d found something?", gpu->device_id);
 			postcalc_hash_async(thr, work, thrdata->res);
 		}
 		memset(thrdata->res, 0, BUFFERSIZE);

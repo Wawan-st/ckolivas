@@ -218,11 +218,9 @@ static size_t resp_hdr_cb(void *ptr, size_t size, size_t nmemb, void *user_data)
 
 	if (!strcasecmp("X-Roll-Ntime", key)) {
 		if (!strncasecmp("N", val, 1)) {
-			if (opt_debug)
-				applog(LOG_DEBUG, "X-Roll-Ntime: N found");
+			applog_debug("X-Roll-Ntime: N found");
 		} else {
-			if (opt_debug)
-				applog(LOG_DEBUG, "X-Roll-Ntime found");
+			applog_debug("X-Roll-Ntime found");
 			hi->has_rolltime = true;
 		}
 	}
@@ -411,8 +409,7 @@ json_t *json_rpc_call(CURL *curl, const char *url,
 	}
 
 	if (!all_data.buf) {
-		if (opt_debug)
-			applog(LOG_DEBUG, "Empty data received in json_rpc_call.");
+		applog_debug("Empty data received in json_rpc_call.");
 		goto err_out;
 	}
 
