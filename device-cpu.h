@@ -47,13 +47,16 @@ enum sha256_algos {
 };
 
 extern const char *algo_names[];
-extern bool opt_usecpu;
 extern struct device_api cpu_api;
+extern int num_processors;
 
-extern char *set_algo(const char *arg, enum sha256_algos *algo);
-extern void show_algo(char buf[OPT_SHOW_LEN], const enum sha256_algos *algo);
+extern char *set_algo(const char *arg, void *unused);
+extern void show_algo(char buf[OPT_SHOW_LEN], void *unused);
 extern char *force_nthreads_int(const char *arg, int *i);
 extern void init_max_name_len();
 extern double bench_algo_stage3(enum sha256_algos algo);
+
+extern const char *get_algo(void);
+
 
 #endif /* __DEVICE_CPU_H__ */

@@ -66,16 +66,14 @@ struct tq_ent {
 
 void vapplog(int prio, const char *fmt, va_list ap)
 {
-	extern bool use_curses;
-
 #ifdef HAVE_SYSLOG_H
-	if (use_syslog) {
+	if (opts->use_syslog) {
 		vsyslog(prio, fmt, ap);
 	}
 #else
 	if (0) {}
 #endif
-	else if (opt_log_output || prio <= LOG_NOTICE) {
+	else if (opts->opt_log_output || prio <= LOG_NOTICE) {
 		char *f;
 		int len;
 		struct timeval tv = { };
@@ -104,7 +102,7 @@ void vapplog(int prio, const char *fmt, va_list ap)
 			fflush(stderr);
 		}
 
-		if (use_curses)
+		if (opts->use_curses)
 			log_curses(prio, f, ap);
 		else {
 			int len = strlen(f);
@@ -213,7 +211,7 @@ static size_t resp_hdr_cb(void *ptr, size_t size, size_t nmemb, void *user_data)
 	if (!*val)			/* skip blank value */
 		goto out;
 
-	if (opt_protocol)
+	if (opts->opt_protocol)
 		applog(LOG_DEBUG, "HTTP hdr(%s): %s", key, val);
 
 	if (!strcasecmp("X-Roll-Ntime", key)) {
@@ -335,7 +333,7 @@ json_t *json_rpc_call(CURL *curl, const char *url,
 
 	/* Shares are staggered already and delays in submission can be costly
 	 * so do not delay them */
-	if (!opt_delaynet || share)
+	if (!opts->opt_delaynet || share)
 		curl_easy_setopt(curl, CURLOPT_TCP_NODELAY, 1);
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, all_data_cb);
 	curl_easy_setopt(curl, CURLOPT_WRITEDATA, &all_data);
@@ -346,8 +344,8 @@ json_t *json_rpc_call(CURL *curl, const char *url,
 	curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, resp_hdr_cb);
 	curl_easy_setopt(curl, CURLOPT_HEADERDATA, &hi);
 	curl_easy_setopt(curl, CURLOPT_USE_SSL, CURLUSESSL_TRY);
-	if (opt_socks_proxy) {
-		curl_easy_setopt(curl, CURLOPT_PROXY, opt_socks_proxy);
+	if (opts->opt_socks_proxy) {
+		curl_easy_setopt(curl, CURLOPT_PROXY, opts->opt_socks_proxy);
 		curl_easy_setopt(curl, CURLOPT_PROXYTYPE, CURLPROXY_SOCKS4);
 	}
 	if (userpass) {
@@ -360,7 +358,7 @@ json_t *json_rpc_call(CURL *curl, const char *url,
 #endif
 	curl_easy_setopt(curl, CURLOPT_POST, 1);
 
-	if (opt_protocol)
+	if (opts->opt_protocol)
 		applog(LOG_DEBUG, "JSON protocol request:\n%s", rpc_req);
 
 	upload_data.buf = rpc_req;
@@ -379,7 +377,7 @@ json_t *json_rpc_call(CURL *curl, const char *url,
 
 	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
 
-	if (opt_delaynet) {
+	if (opts->opt_delaynet) {
 		/* Don't delay share submission, but still track the nettime */
 		if (!share) {
 			long long now_msecs, last_msecs;
@@ -428,13 +426,13 @@ json_t *json_rpc_call(CURL *curl, const char *url,
 	if (!val) {
 		applog(LOG_INFO, "JSON decode failed(%d): %s", err.line, err.text);
 
-		if (opt_protocol)
+		if (opts->opt_protocol)
 			applog(LOG_DEBUG, "JSON protocol response:\n%s", all_data.buf);
 
 		goto err_out;
 	}
 
-	if (opt_protocol) {
+	if (opts->opt_protocol) {
 		char *s = json_dumps(val, JSON_INDENT(3));
 		applog(LOG_DEBUG, "JSON protocol response:\n%s", s);
 		free(s);
@@ -578,7 +576,7 @@ bool fulltest(const unsigned char *hash, const unsigned char *target)
 		}
 	}
 
-	if (opt_debug) {
+	if (opts->opt_debug) {
 		hash_str = bin2hex(hash_swap, 32);
 		target_str = bin2hex(target_swap, 32);
 

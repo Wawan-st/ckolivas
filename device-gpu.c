@@ -34,18 +34,12 @@
 /* TODO: cleanup externals ********************/
 #include <curses.h>
 
-extern WINDOW *mainwin, *statuswin, *logwin;
+extern WINDOW *logwin;
 extern void enable_curses(void);
 
 extern int mining_threads;
-extern double total_secs;
-extern int opt_g_threads;
 extern bool ping;
-extern bool opt_loginput;
-extern char *opt_kernel_path;
-extern char *opt_kernel;
 extern int gpur_thr_id;
-extern bool opt_noadl;
 extern bool have_opencl;
 
 
@@ -428,7 +422,7 @@ struct device_api opencl_api;
 
 char *print_ndevs_and_exit(int *ndevs)
 {
-	opt_log_output = true;
+	opts->opt_log_output = true;
 	opencl_api.api_detect();
 	clear_adl(*ndevs);
 	applog(LOG_INFO, "%i GPU devices max detected", *ndevs);
@@ -475,10 +469,10 @@ void manage_gpu(void)
 	char checkin[40];
 	char input;
 
-	if (!opt_g_threads)
+	if (!opts->opt_g_threads)
 		return;
 
-	opt_loginput = true;
+	opts->opt_loginput = true;
 	immedok(logwin, true);
 	clear_logwin();
 retry:
@@ -487,7 +481,7 @@ retry:
 		struct cgpu_info *cgpu = &gpus[gpu];
 
 		wlog("GPU %d: %.1f / %.1f Mh/s | A:%d  R:%d  HW:%d  U:%.2f/m  I:%d\n",
-			gpu, cgpu->rolling, cgpu->total_mhashes / total_secs,
+			gpu, cgpu->rolling, cgpu->total_mhashes / stats->total_secs,
 			cgpu->accepted, cgpu->rejected, cgpu->hw_errors,
 			cgpu->utility, cgpu->intensity);
 #ifdef HAVE_ADL
@@ -667,7 +661,7 @@ retry:
 		clear_logwin();
 
 	immedok(logwin, false);
-	opt_loginput = false;
+	opts->opt_loginput = false;
 }
 #else
 void manage_gpu(void)
@@ -910,10 +904,10 @@ static void opencl_detect()
 	if (!nDevs)
 		return;
 
-	if (opt_kernel) {
-		if (strcmp(opt_kernel, "poclbm") && strcmp(opt_kernel, "phatk"))
+	if (opts->opt_kernel) {
+		if (strcmp(opts->opt_kernel, "poclbm") && strcmp(opts->opt_kernel, "phatk"))
 			quit(1, "Invalid kernel name specified - must be poclbm or phatk");
-		if (!strcmp(opt_kernel, "poclbm"))
+		if (!strcmp(opts->opt_kernel, "poclbm"))
 			chosen_kernel = KL_POCLBM;
 		else
 			chosen_kernel = KL_PHATK;
@@ -927,11 +921,11 @@ static void opencl_detect()
 		cgpu->enabled = true;
 		cgpu->api = &opencl_api;
 		cgpu->device_id = i;
-		cgpu->threads = opt_g_threads;
+		cgpu->threads = opts->opt_g_threads;
 		cgpu->virtual_gpu = i;
 	}
 
-	if (!opt_noadl)
+	if (!opts->opt_noadl)
 		init_adl(nDevs);
 }
 
@@ -998,7 +992,7 @@ static bool opencl_thread_prepare(struct thr_info *thr)
 	applog(LOG_INFO, "Init GPU thread %i GPU %i virtual GPU %i", i, gpu, virtual_gpu);
 	clStates[i] = initCl(virtual_gpu, name, sizeof(name));
 	if (!clStates[i]) {
-		if (use_curses)
+		if (opts->use_curses)
 			enable_curses();
 		applog(LOG_ERR, "Failed to init GPU thread %d, disabling device %d", i, gpu);
 		if (!failmessage) {
@@ -1007,7 +1001,7 @@ static bool opencl_thread_prepare(struct thr_info *thr)
 			applog(LOG_ERR, "Restarting the GPU from the menu will not fix this.");
 			applog(LOG_ERR, "Try restarting cgminer.");
 			failmessage = true;
-			if (use_curses) {
+			if (opts->use_curses) {
 				buf = curses_input("Press enter to continue");
 				if (buf)
 					free(buf);

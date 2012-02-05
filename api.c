@@ -20,7 +20,7 @@
 
 #include "compat.h"
 #include "miner.h"
-#include "device-cpu.h" /* for algo_names[], TODO: re-factor dependency */
+#include "device-cpu.h"
 
 #if defined(unix) || defined(__APPLE__)
 	#include <errno.h>
@@ -399,7 +399,7 @@ static char *message(int messageid, int paramid, char *param2, bool isjson)
 				break;
 #ifdef WANT_CPUMINE
 			case PARAM_GCMAX:
-				if (opt_n_threads > 0)
+				if (opts->opt_n_threads > 0)
 					cpu = num_processors;
 				else
 					cpu = 0;
@@ -428,9 +428,9 @@ static char *message(int messageid, int paramid, char *param2, bool isjson)
 			ptr = msg_buffer + strlen(msg_buffer);
 
 			if (isjson)
-				sprintf(ptr, "\",\"Description\":\"%s\"}" JSON_CLOSE, opt_api_description);
+				sprintf(ptr, "\",\"Description\":\"%s\"}" JSON_CLOSE, opts->opt_api_description);
 			else
-				sprintf(ptr, ",Description=%s%c", opt_api_description, SEPARATOR);
+				sprintf(ptr, ",Description=%s%c", opts->opt_api_description, SEPARATOR);
 
 			return msg_buffer;
 		}
@@ -438,10 +438,10 @@ static char *message(int messageid, int paramid, char *param2, bool isjson)
 
 	if (isjson)
 		sprintf(msg_buffer, JSON_START JSON_STATUS "{\"" _STATUS "\":\"F\",\"Code\":-1,\"Msg\":\"%d\",\"Description\":\"%s\"}" JSON_CLOSE,
-			messageid, opt_api_description);
+			messageid, opts->opt_api_description);
 	else
 		sprintf(msg_buffer, _STATUS "=F,Code=-1,Msg=%d,Description=%s%c",
-			messageid, opt_api_description, SEPARATOR);
+			messageid, opts->opt_api_description, SEPARATOR);
 
 	return msg_buffer;
 }
@@ -478,15 +478,15 @@ static void minerconfig(__maybe_unused SOCKETTYPE c, __maybe_unused char *param,
 #endif
 
 #ifdef WANT_CPUMINE
-	cpucount = opt_n_threads > 0 ? num_processors : 0;
+	cpucount = opts->opt_n_threads > 0 ? num_processors : 0;
 #endif
 
 	strcpy(io_buffer, message(MSG_MINECON, 0, NULL, isjson));
 
 	if (isjson)
-		sprintf(buf, "," JSON_MINECON "{\"GPU Count\":%d,\"CPU Count\":%d,\"Pool Count\":%d,\"ADL\":\"%s\",\"ADL in use\":\"%s\",\"Strategy\":\"%s\"}" JSON_CLOSE, nDevs, cpucount, total_pools, adl, adlinuse, strategies[pool_strategy].s);
+		sprintf(buf, "," JSON_MINECON "{\"GPU Count\":%d,\"CPU Count\":%d,\"Pool Count\":%d,\"ADL\":\"%s\",\"ADL in use\":\"%s\",\"Strategy\":\"%s\"}" JSON_CLOSE, nDevs, cpucount, total_pools, adl, adlinuse, strategies[opts->pool_strategy].s);
 	else
-		sprintf(buf, _MINECON ",GPU Count=%d,CPU Count=%d,Pool Count=%d,ADL=%s,ADL in use=%s,Strategy=%s%c", nDevs, cpucount, total_pools, adl, adlinuse, strategies[pool_strategy].s, SEPARATOR);
+		sprintf(buf, _MINECON ",GPU Count=%d,CPU Count=%d,Pool Count=%d,ADL=%s,ADL in use=%s,Strategy=%s%c", nDevs, cpucount, total_pools, adl, adlinuse, strategies[opts->pool_strategy].s, SEPARATOR);
 
 	strcat(io_buffer, buf);
 }
@@ -503,7 +503,7 @@ static void gpustatus(int gpu, bool isjson)
 	if (gpu >= 0 && gpu < nDevs) {
 		struct cgpu_info *cgpu = &gpus[gpu];
 
-		cgpu->utility = cgpu->accepted / ( total_secs ? total_secs : 1 ) * 60;
+		cgpu->utility = cgpu->accepted / stats->total_secs * 60;
 
 #ifdef HAVE_ADL
 		if (!gpu_stats(gpu, &gt, &gc, &gm, &gv, &ga, &gf, &gp, &pt))
@@ -532,13 +532,13 @@ static void gpustatus(int gpu, bool isjson)
 		if (isjson)
 			sprintf(buf, "{\"GPU\":%d,\"Enabled\":\"%s\",\"Status\":\"%s\",\"Temperature\":%.2f,\"Fan Speed\":%d,\"Fan Percent\":%d,\"GPU Clock\":%d,\"Memory Clock\":%d,\"GPU Voltage\":%.3f,\"GPU Activity\":%d,\"Powertune\":%d,\"MHS av\":%.2f,\"MHS %ds\":%.2f,\"Accepted\":%d,\"Rejected\":%d,\"Hardware Errors\":%d,\"Utility\":%.2f,\"Intensity\":\"%s\"}",
 				gpu, enabled, status, gt, gf, gp, gc, gm, gv, ga, pt,
-				cgpu->total_mhashes / total_secs, opt_log_interval, cgpu->rolling,
+				cgpu->total_mhashes / stats->total_secs, opts->opt_log_interval, cgpu->rolling,
 				cgpu->accepted, cgpu->rejected, cgpu->hw_errors,
 				cgpu->utility, intensity);
 		else
 			sprintf(buf, "GPU=%d,Enabled=%s,Status=%s,Temperature=%.2f,Fan Speed=%d,Fan Percent=%d,GPU Clock=%d,Memory Clock=%d,GPU Voltage=%.3f,GPU Activity=%d,Powertune=%d,MHS av=%.2f,MHS %ds=%.2f,Accepted=%d,Rejected=%d,Hardware Errors=%d,Utility=%.2f,Intensity=%s%c",
 				gpu, enabled, status, gt, gf, gp, gc, gm, gv, ga, pt,
-				cgpu->total_mhashes / total_secs, opt_log_interval, cgpu->rolling,
+				cgpu->total_mhashes / stats->total_secs, opts->opt_log_interval, cgpu->rolling,
 				cgpu->accepted, cgpu->rejected, cgpu->hw_errors,
 				cgpu->utility, intensity, SEPARATOR);
 
@@ -551,21 +551,21 @@ static void cpustatus(int cpu, bool isjson)
 {
 	char buf[BUFSIZ];
 
-	if (opt_n_threads > 0 && cpu >= 0 && cpu < num_processors) {
+	if (opts->opt_n_threads > 0 && cpu >= 0 && cpu < num_processors) {
 		struct cgpu_info *cgpu = &cpus[cpu];
 
-		cgpu->utility = cgpu->accepted / ( total_secs ? total_secs : 1 ) * 60;
+		cgpu->utility = cgpu->accepted / stats->total_secs * 60;
 
 		if (isjson)
 			sprintf(buf, "{\"CPU\":%d,\"MHS av\":%.2f,\"MHS %ds\":%.2f,\"Accepted\":%d,\"Rejected\":%d,\"Utility\":%.2f}",
-				cpu, cgpu->total_mhashes / total_secs,
-				opt_log_interval, cgpu->rolling,
+				cpu, cgpu->total_mhashes / stats->total_secs,
+				opts->opt_log_interval, cgpu->rolling,
 				cgpu->accepted, cgpu->rejected,
 				cgpu->utility);
 		else
 			sprintf(buf, "CPU=%d,MHS av=%.2f,MHS %ds=%.2f,Accepted=%d,Rejected=%d,Utility=%.2f%c",
-				cpu, cgpu->total_mhashes / total_secs,
-				opt_log_interval, cgpu->rolling,
+				cpu, cgpu->total_mhashes / stats->total_secs,
+				opts->opt_log_interval, cgpu->rolling,
 				cgpu->accepted, cgpu->rejected,
 				cgpu->utility, SEPARATOR);
 
@@ -578,7 +578,7 @@ static void devstatus(__maybe_unused SOCKETTYPE c, __maybe_unused char *param, b
 {
 	int i;
 
-	if (nDevs == 0 && opt_n_threads == 0) {
+	if (nDevs == 0 && opts->opt_n_threads == 0) {
 		strcpy(io_buffer, message(MSG_NODEVS, 0, NULL, isjson));
 		return;
 	}
@@ -598,7 +598,7 @@ static void devstatus(__maybe_unused SOCKETTYPE c, __maybe_unused char *param, b
 	}
 
 #ifdef WANT_CPUMINE
-	if (opt_n_threads > 0)
+	if (opts->opt_n_threads > 0)
 		for (i = 0; i < num_processors; i++) {
 			if (isjson && (i > 0 || nDevs > 0))
 				strcat(io_buffer, COMMA);
@@ -649,7 +649,7 @@ static void cpudev(__maybe_unused SOCKETTYPE c, char *param, bool isjson)
 {
 	int id;
 
-	if (opt_n_threads == 0) {
+	if (opts->opt_n_threads == 0) {
 		strcpy(io_buffer, message(MSG_CPUNON, 0, NULL, isjson));
 		return;
 	}
@@ -746,29 +746,29 @@ static void summary(__maybe_unused SOCKETTYPE c, __maybe_unused char *param, boo
 	double utility, mhs;
 
 #ifdef WANT_CPUMINE
-	char *algo = (char *)(algo_names[opt_algo]);
+	const char *algo = get_algo();
 	if (algo == NULL)
 		algo = "(null)";
 #endif
 
-	utility = total_accepted / ( total_secs ? total_secs : 1 ) * 60;
-	mhs = total_mhashes_done / total_secs;
+	utility = stats->total_accepted / stats->total_secs * 60;
+	mhs = stats->total_mhashes_done / stats->total_secs;
 
 #ifdef WANT_CPUMINE
 	if (isjson)
 		sprintf(io_buffer, "%s," JSON_SUMMARY "{\"Elapsed\":%.0f,\"Algorithm\":\"%s\",\"MHS av\":%.2f,\"Found Blocks\":%d,\"Getworks\":%d,\"Accepted\":%d,\"Rejected\":%d,\"Hardware Errors\":%d,\"Utility\":%.2f,\"Discarded\":%d,\"Stale\":%d,\"Get Failures\":%d,\"Local Work\":%u,\"Remote Failures\":%u,\"Network Blocks\":%u}" JSON_CLOSE,
 			message(MSG_SUMM, 0, NULL, isjson),
-			total_secs, algo, mhs, found_blocks,
-			total_getworks, total_accepted, total_rejected,
-			hw_errors, utility, total_discarded, total_stale,
-			total_go, local_work, total_ro, new_blocks);
+			stats->total_secs, algo, mhs, stats->found_blocks,
+			stats->total_getworks, stats->total_accepted, stats->total_rejected,
+			stats->hw_errors, utility, stats->total_discarded, stats->total_stale,
+			stats->total_go, stats->local_work, stats->total_ro, stats->new_blocks);
 	else
 		sprintf(io_buffer, "%s" _SUMMARY ",Elapsed=%.0f,Algorithm=%s,MHS av=%.2f,Found Blocks=%d,Getworks=%d,Accepted=%d,Rejected=%d,Hardware Errors=%d,Utility=%.2f,Discarded=%d,Stale=%d,Get Failures=%d,Local Work=%u,Remote Failures=%u,Network Blocks=%u%c",
 			message(MSG_SUMM, 0, NULL, isjson),
-			total_secs, algo, mhs, found_blocks,
-			total_getworks, total_accepted, total_rejected,
-			hw_errors, utility, total_discarded, total_stale,
-			total_go, local_work, total_ro, new_blocks, SEPARATOR);
+			stats->total_secs, algo, mhs, stats->found_blocks,
+			stats->total_getworks, stats->total_accepted, stats->total_rejected,
+			stats->hw_errors, utility, stats->total_discarded, stats->total_stale,
+			stats->total_go, stats->local_work, stats->total_ro, stats->new_blocks, SEPARATOR);
 #else
 	if (isjson)
 		sprintf(io_buffer, "%s," JSON_SUMMARY "{\"Elapsed\":%.0f,\"MHS av\":%.2f,\"Found Blocks\":%d,\"Getworks\":%d,\"Accepted\":%d,\"Rejected\":%d,\"Hardware Errors\":%d,\"Utility\":%.2f,\"Discarded\":%d,\"Stale\":%d,\"Get Failures\":%d,\"Local Work\":%u,\"Remote Failures\":%u,\"Network Blocks\":%u}" JSON_CLOSE,
@@ -908,7 +908,7 @@ static void cpucount(__maybe_unused SOCKETTYPE c, __maybe_unused char *param, bo
 	int count = 0;
 
 #ifdef WANT_CPUMINE
-	count = opt_n_threads > 0 ? num_processors : 0;
+	count = opts->opt_n_threads > 0 ? num_processors : 0;
 #endif
 
 	strcpy(io_buffer, message(MSG_NUMCPU, 0, NULL, isjson));
@@ -1214,7 +1214,7 @@ void api(void)
 	char *connectaddr;
 	char *binderror;
 	time_t bindstart;
-	short int port = opt_api_port;
+	short int port = opts->opt_api_port;
 	struct sockaddr_in serv;
 	struct sockaddr_in cli;
 	socklen_t clisiz;
@@ -1229,9 +1229,9 @@ void api(void)
 	int i;
 
 	/* This should be done first to ensure curl has already called WSAStartup() in windows */
-	sleep(opt_log_interval);
+	sleep(opts->opt_log_interval);
 
-	if (!opt_api_listen) {
+	if (!opts->opt_api_listen) {
 		applog(LOG_DEBUG, "API not running%s", UNAVAILABLE);
 		return;
 	}
@@ -1246,7 +1246,7 @@ void api(void)
 
 	serv.sin_family = AF_INET;
 
-	if (!opt_api_network) {
+	if (!opts->opt_api_network) {
 		serv.sin_addr.s_addr = inet_addr(localaddr);
 		if (serv.sin_addr.s_addr == INVINETADDR) {
 			applog(LOG_ERR, "API2 initialisation failed (%s)%s", SOCKERRMSG, UNAVAILABLE);
@@ -1284,7 +1284,7 @@ void api(void)
 		return;
 	}
 
-	if (opt_api_network)
+	if (opts->opt_api_network)
 		applog(LOG_WARNING, "API running in UNRESTRICTED access mode");
 	else
 		applog(LOG_WARNING, "API running in restricted access mode");
@@ -1299,14 +1299,14 @@ void api(void)
 			goto die;
 		}
 
-		if (opt_api_network)
+		if (opts->opt_api_network)
 			addrok = true;
 		else {
 			connectaddr = inet_ntoa(cli.sin_addr);
 			addrok = (strcmp(connectaddr, localaddr) == 0);
 		}
 
-		if (opt_debug) {
+		if (opts->opt_debug) {
 			connectaddr = inet_ntoa(cli.sin_addr);
 			applog(LOG_DEBUG, "DBG: connection from %s - %s", connectaddr, addrok ? "Accepted" : "Ignored");
 		}
