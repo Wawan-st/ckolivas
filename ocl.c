@@ -688,7 +688,8 @@ built:
 		return NULL;
 	}
 
-	clState->outputBuffer = clCreateBuffer(clState->context, CL_MEM_READ_WRITE, BUFFERSIZE, NULL, &status);
+	/* create a write-only OpenCL output buffer, because the kernel only writes into it */
+	clState->outputBuffer = clCreateBuffer(clState->context, CL_MEM_WRITE_ONLY, BUFFERSIZE, NULL, &status);
 	if (status != CL_SUCCESS) {
 		applog(LOG_ERR, "Error: clCreateBuffer (outputBuffer)");
 		return NULL;
