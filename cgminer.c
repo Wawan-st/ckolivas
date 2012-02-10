@@ -55,6 +55,29 @@
 	#include <sys/wait.h>
 #endif
 
+#ifdef BLOCK_MONITOR
+	#ifdef WIN32
+		#include <winsock2.h>
+	#endif
+	#if defined(unix)
+		#include <arpa/inet.h>
+		#include <netinet/in.h>
+		#include <sys/socket.h>
+		#define WSAGetLastError()   errno
+		#define WSAEINVAL           EINVAL
+		#define WSAEALREADY         EALREADY
+		#define WSAEWOULDBLOCK      EWOULDBLOCK
+		#define WSAEMSGSIZE         EMSGSIZE
+		#define WSAEINTR            EINTR
+		#define WSAEINPROGRESS      EINPROGRESS
+		#define WSAEADDRINUSE       EADDRINUSE
+		#define WSAENOTSOCK         EBADF
+		#define INVALID_SOCKET      (SOCKET)(~0)
+		#define SOCKET_ERROR        -1
+		typedef u_int SOCKET;
+		#define closesocket(s)		close(s)
+	#endif
+#endif
 
 enum workio_commands {
 	WC_GET_WORK,
@@ -83,8 +106,16 @@ int gpu_threads;
 
 bool opt_debug = false;
 bool opt_protocol = false;
+#ifdef BLOCK_MONITOR
+static int opt_blockmonitor_port = 60000;
+static bool want_blockmonitor = true;
+static bool have_blockmonitor = false;
+static bool want_longpoll = false;
+static bool have_longpoll = false;
+#else
 static bool want_longpoll = true;
 static bool have_longpoll = false;
+#endif
 static bool want_per_device_stats = false;
 bool use_syslog = false;
 static bool opt_quiet = false;
@@ -140,6 +171,9 @@ char *cgminer_path;
 
 struct thr_info *thr_info;
 static int work_thr_id;
+#ifdef BLOCK_MONITOR
+static int blockmonitor_thr_id;
+#endif
 int longpoll_thr_id;
 static int stage_thr_id;
 static int watchdog_thr_id;
@@ -683,9 +717,21 @@ static struct opt_table opt_config_table[] = {
 			opt_set_bool, &opt_noadl,
 			"Disable the ATI display library used for monitoring and setting GPU parameters"),
 #endif
+#ifdef BLOCK_MONITOR
+	OPT_WITHOUT_ARG("--no-blockmonitor",
+			opt_set_invbool, &want_blockmonitor,
+			"Disable Block Monitor support"),
+	OPT_WITH_ARG("--blockmonitor-port",
+			set_int_1_to_65535, opt_show_intval, &opt_blockmonitor_port,
+			"Block Monitor UDP Port (default 60000)"),
+	OPT_WITHOUT_ARG("--longpoll",
+			opt_set_invbool, &want_longpoll,
+			"Enable X-Long-Polling support"),
+#else
 	OPT_WITHOUT_ARG("--no-longpoll",
 			opt_set_invbool, &want_longpoll,
 			"Disable X-Long-Polling support"),
+#endif
 #ifdef HAVE_OPENCL
 	OPT_WITHOUT_ARG("--no-restart",
 			opt_set_invbool, &opt_restart,
@@ -1129,6 +1175,11 @@ static void curses_print_status(void)
 	if (pool_strategy == POOL_LOADBALANCE && total_pools > 1)
 		mvwprintw(statuswin, 4, 0, " Connected to multiple pools with%s LP",
 			have_longpoll ? "": "out");
+#ifdef BLOCK_MONITOR
+	else if (have_blockmonitor && opt_blockmonitor_port !=0 )
+		mvwprintw(statuswin, 4, 0, " Connected to %s with blockmonitor on port %d as user %s",
+			pool->rpc_url, opt_blockmonitor_port, pool->rpc_user);
+#endif
 	else
 		mvwprintw(statuswin, 4, 0, " Connected to %s with%s LP as user %s",
 			pool->rpc_url, have_longpoll ? "": "out", pool->rpc_user);
@@ -2510,6 +2561,9 @@ retry:
 
 static void start_longpoll(void);
 static void stop_longpoll(void);
+#ifdef BLOCK_MONITOR
+static void restart_blockmonitor(void);
+#endif
 
 static void set_options(void)
 {
@@ -2521,6 +2575,10 @@ static void set_options(void)
 	clear_logwin();
 retry:
 	wlogprint("\n[L]ongpoll: %s\n", want_longpoll ? "On" : "Off");
+#ifdef BLOCK_MONITOR
+	wlogprint("[B]lockmonitor: %s\n", want_blockmonitor ? "On" : "Off");
+	wlogprint("[U]DP Port: %d\n", opt_blockmonitor_port);
+#endif	
 	wlogprint("[Q]ueue: %d\n[S]cantime: %d\n[E]xpiry: %d\n[R]etries: %d\n[P]ause: %d\n[W]rite config file\n",
 		opt_queue, opt_scantime, opt_expiry, opt_retries, opt_fail_pause);
 	wlogprint("Select an option or any other key to return\n");
@@ -2543,6 +2601,23 @@ retry:
 		} else
 			start_longpoll();
 		goto retry;
+#ifdef BLOCK_MONITOR
+	} else if (!strncasecmp(&input, "b", 1)) {
+		want_blockmonitor ^= true;
+		applog(LOG_WARNING, "Blockmonitor %s", want_blockmonitor ? "enabled" : "disabled");
+		restart_blockmonitor();
+		goto retry;
+	} else if (!strncasecmp(&input, "u", 1)) {
+		selected = curses_int("Set Blockmonitor UDP Port (between 1 and 65536)");
+		if (selected < 1 || selected > 65536) {
+			wlogprint("Invalid port\n");
+			goto retry;
+		}
+		opt_blockmonitor_port = selected;
+		restart_blockmonitor();
+		goto retry;
+#endif		
+		
 	} else if  (!strncasecmp(&input, "s", 1)) {
 		selected = curses_int("Set scantime in seconds");
 		if (selected < 0 || selected > 9999) {
@@ -3528,6 +3603,114 @@ static void start_longpoll(void)
 	tq_push(thr_info[longpoll_thr_id].q, &ping);
 }
 
+#ifdef BLOCK_MONITOR
+#define BUFLEN 32
+
+static void *blockmonitor_thread(void *userdata)
+{
+	struct thr_info *mythr = userdata;
+	int failures = 0;
+	unsigned int port = (unsigned int)opt_blockmonitor_port;
+
+	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
+	pthread_detach(pthread_self());
+
+	// bind to udp port first
+	int nOne = 1;
+	struct sockaddr_in addr;
+	SOCKET sockfd;
+	char buf[BUFLEN+1];
+
+	if (unlikely((sockfd=socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP))==INVALID_SOCKET)) {
+		applog(LOG_ERR, "socket initialisation failed %d" , WSAGetLastError());
+		goto out;
+	}
+
+#ifndef WIN32
+    setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, (void*)&nOne, sizeof(int));
+#endif
+
+	memset((char *) &addr, 0, sizeof(addr));
+	addr.sin_family = AF_INET;
+	addr.sin_port = htons(port);
+	addr.sin_addr.s_addr = htonl(INADDR_ANY);
+
+	if (unlikely(bind(sockfd, &addr, sizeof(addr))==SOCKET_ERROR)){
+		applog(LOG_ERR, "bind to port %hu initialisation failed %d", port, WSAGetLastError());
+		goto out;
+	}
+
+	tq_pop(mythr->q, NULL);
+
+	have_blockmonitor = true;
+	applog(LOG_NOTICE, "Block Monitor activated on port %hu", port);
+
+	ssize_t len;
+	while (opt_retries == -1 || failures < opt_retries) {
+
+		if (likely((len = recv(sockfd, buf, BUFLEN, 0))!=SOCKET_ERROR)) {
+			buf[len] = 0;
+			applog(LOG_DEBUG, "Blockmonitor: %s", buf);
+
+			if (!strncmp(buf, "New Block", 9)) {
+				applog(LOG_NOTICE, "Blockmonitor: %s", buf);
+				restart_threads();
+			}
+
+			failures = 0; // reset
+		}
+		else {
+			applog(LOG_WARNING,
+				"recvfrom failed for blockmonitor %d", WSAGetLastError());
+			sleep(1);
+			if (opt_retries != -1) ++failures;
+		}
+	}
+
+	if (opt_retries != -1 && failures >= opt_retries)
+		applog(LOG_ERR,
+			"blockmonitor keeps failing, ending thread");
+
+out:
+	if (sockfd != INVALID_SOCKET)
+		closesocket(sockfd);
+
+	have_blockmonitor = false;
+	tq_freeze(mythr->q);
+
+	return NULL;
+}
+
+static void stop_blockmonitor(void)
+{
+	struct thr_info *thr = &thr_info[blockmonitor_thr_id];
+
+	thr_info_cancel(thr);
+	have_blockmonitor = false;
+}
+
+static void start_blockmonitor(void)
+{
+	struct thr_info *thr = &thr_info[blockmonitor_thr_id];
+
+	tq_thaw(thr->q);
+	if (unlikely(thr_info_create(thr, NULL, blockmonitor_thread, thr)))
+		quit(1, "blockmonitor thread create failed");
+	if (opt_debug)
+		applog(LOG_DEBUG, "Pushing ping to blockmonitor thread");
+	tq_push(thr_info[blockmonitor_thr_id].q, &ping);
+}
+
+static void restart_blockmonitor(void)
+{
+	if (want_blockmonitor && have_blockmonitor)
+		return;
+	stop_blockmonitor();
+	if (want_blockmonitor)
+		start_blockmonitor();
+}
+#endif
+
 void reinit_device(struct cgpu_info *cgpu)
 {
 	if (cgpu->api->reinit_device)
@@ -4235,7 +4418,11 @@ int main (int argc, char *argv[])
 			fork_monitor();
 	#endif // defined(unix)
 
+#ifdef BLOCK_MONITOR
+	total_threads = mining_threads + 9;
+#else
 	total_threads = mining_threads + 8;
+#endif
 	work_restart = calloc(total_threads, sizeof(*work_restart));
 	if (!work_restart)
 		quit(1, "Failed to calloc work_restart");
@@ -4263,6 +4450,16 @@ int main (int argc, char *argv[])
 	thr->q = tq_new();
 	if (!thr->q)
 		quit(1, "Failed to tq_new");
+
+#ifdef BLOCK_MONITOR
+	/* init blockmonitor thread info */
+	blockmonitor_thr_id = mining_threads + 8;
+	thr = &thr_info[blockmonitor_thr_id];
+	thr->id = blockmonitor_thr_id;
+	thr->q = tq_new();
+	if (!thr->q)
+		quit(1, "Failed to tq_new");
+#endif
 
 	stage_thr_id = mining_threads + 3;
 	thr = &thr_info[stage_thr_id];
@@ -4328,7 +4525,11 @@ retry_pools:
 
 	if (want_longpoll)
 		start_longpoll();
-
+#ifdef BLOCK_MONITOR
+	// start block monitor
+	if (want_blockmonitor)
+		start_blockmonitor();
+#endif
 	gettimeofday(&total_tv_start, NULL);
 	gettimeofday(&total_tv_end, NULL);
 	get_datestamp(datestamp, &total_tv_start);
