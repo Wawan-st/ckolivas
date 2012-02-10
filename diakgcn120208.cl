@@ -603,21 +603,19 @@ __kernel
 		if (!V[7].w)
 			output[FOUND] = output[NFLAG & nonce.w] = nonce.w;
 	}
+#elif defined VECTORS2
+	V[7] ^= 0x136032ed;
+
+	bool result = V[7].x & V[7].y;
+
+	if (!result) {
+		if (!V[7].x)
+			output[FOUND] = output[NFLAG & nonce.x] = nonce.x;
+		if (!V[7].y)
+			output[FOUND] = output[NFLAG & nonce.y] = nonce.y;
+	}
 #else
-	#ifdef VECTORS2
-		V[7] ^= 0x136032ed;
-
-		bool result = V[7].x & V[7].y;
-
-		if (!result) {
-			if (!V[7].x)
-				output[FOUND] = output[NFLAG & nonce.x] = nonce.x;
-			if (!V[7].y)
-				output[FOUND] = output[NFLAG & nonce.y] = nonce.y;
-		}
-	#else
-		if (V[7] == 0x136032ed)
-			output[FOUND] = output[NFLAG & nonce] = nonce;
-	#endif
+	if (V[7] == 0x136032ed)
+		output[FOUND] = output[NFLAG & nonce] = nonce;
 #endif
 }
