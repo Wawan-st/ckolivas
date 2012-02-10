@@ -1,4 +1,4 @@
-// DiaKGCN 09-02-2012 - OpenCL kernel by Diapolo
+// DiaKGCN 10-02-2012 - OpenCL kernel by Diapolo
 //
 // Parts and / or ideas for this kernel are based upon the public-domain poclbm project, the phatk kernel by Phateus and the DiabloMiner kernel by DiabloD3.
 // The kernel was rewritten by me (Diapolo) and is still public-domain!
@@ -13,24 +13,19 @@
 	typedef uint u;
 #endif
 
-#ifdef BITALIGN
+#ifdef BFI_INT
 	#pragma OPENCL EXTENSION cl_amd_media_ops : enable
-	#ifdef BFI_INT
-		#define Ch(x, y, z) amd_bytealign(x, y, z)
-		#define Ma(x, y, z) amd_bytealign(z ^ x, y, x)
+	#define Ch(x, y, z) amd_bytealign(x, y, z)
+	#define Ma(x, y, z) amd_bytealign(z ^ x, y, x)
+#else
+	#define Ch(x, y, z) bitselect(z, y, x)
+	#if defined(VECTORS2) || defined(VECTORS4) || defined(VECTORS8)
+		// GCN - VEC2 or VEC4
+		#define Ma(z, x, y) bitselect(z, y, z ^ x)
 	#else
-		#define Ch(x, y, z) bitselect(z, y, x)
-		#if defined(VECTORS2) || defined(VECTORS4) || defined(VECTORS8)
-			// GCN - VEC2 or VEC4
-			#define Ma(z, x, y) bitselect(z, y, z ^ x)
-		#else
-			// GCN - no VEC
-			#define Ma(z, x, y) Ch(z ^ x, y, x)
-		#endif
+		// GCN - no VEC
+		#define Ma(z, x, y) Ch(z ^ x, y, x)
 	#endif
-#else //BITALIGN
-	#define Ch(x, y, z) (z ^ (x & (y ^ z)))
-	#define Ma(x, y, z) ((x & z) | (y & (x | z)))
 #endif
 
 #ifdef GOFFSET
@@ -608,21 +603,19 @@ __kernel
 		if (!V[7].w)
 			output[FOUND] = output[NFLAG & nonce.w] = nonce.w;
 	}
+#elif defined VECTORS2
+	V[7] ^= 0x136032ed;
+
+	bool result = V[7].x & V[7].y;
+
+	if (!result) {
+		if (!V[7].x)
+			output[FOUND] = output[NFLAG & nonce.x] = nonce.x;
+		if (!V[7].y)
+			output[FOUND] = output[NFLAG & nonce.y] = nonce.y;
+	}
 #else
-	#ifdef VECTORS2
-		V[7] ^= 0x136032ed;
-
-		bool result = V[7].x & V[7].y;
-
-		if (!result) {
-			if (!V[7].x)
-				output[FOUND] = output[NFLAG & nonce.x] = nonce.x;
-			if (!V[7].y)
-				output[FOUND] = output[NFLAG & nonce.y] = nonce.y;
-		}
-	#else
-		if (V[7] == 0x136032ed)
-			output[FOUND] = output[NFLAG & nonce] = nonce;
-	#endif
+	if (V[7] == 0x136032ed)
+		output[FOUND] = output[NFLAG & nonce] = nonce;
 #endif
 }
