@@ -288,8 +288,7 @@ _clState *initCl(unsigned int gpu, char *name, size_t nameSize)
 		return NULL;
 	}
 
-	/* Check for BFI INT support. Hopefully people don't mix devices with
-	 * and without it! */
+	/* Check for BFI INT support (includes whitelist check). Hopefully people don't mix devices with and without it! */
 	char * extensions = malloc(1024);
 	const char * camo = "cl_amd_media_ops";
 	char *find;
@@ -300,8 +299,24 @@ _clState *initCl(unsigned int gpu, char *name, size_t nameSize)
 		return NULL;
 	}
 	find = strstr(extensions, camo);
-	if (find)
+	if (find) {
 		clState->hasBitAlign = true;
+		if (strstr(name, "Cedar") ||
+		    strstr(name, "Redwood") ||
+		    strstr(name, "Juniper") ||
+		    strstr(name, "Cypress" ) ||
+		    strstr(name, "Hemlock" ) ||
+		    strstr(name, "Caicos" ) ||
+		    strstr(name, "Turks" ) ||
+		    strstr(name, "Barts" ) ||
+		    strstr(name, "Cayman" ) ||
+		    strstr(name, "Antilles" ) ||
+		    strstr(name, "Wrestler" ) ||
+		    strstr(name, "Zacate" ) ||
+		    strstr(name, "WinterPark" ) ||
+		    strstr(name, "BeaverCreek" ))
+			patchbfi = true;
+	}
 		
 	/* Check for OpenCL >= 1.0 support, needed for global offset parameter usage. */
 	char * devoclver = malloc(1024);
@@ -464,11 +479,6 @@ _clState *initCl(unsigned int gpu, char *name, size_t nameSize)
 		if (opt_debug)
 			applog(LOG_DEBUG, "Loaded binary image %s", binaryfilename);
 
-		/* We don't need to patch this already loaded image, but need to
-		 * set the flag for status later */
-		if (clState->hasBitAlign)
-			patchbfi = true;
-
 		free(binaries[gpu]);
 		goto built;
 	}
@@ -504,21 +514,6 @@ build:
 		strcat(CompilerOptions, " -D BITALIGN");
 		if (opt_debug)
 			applog(LOG_DEBUG, "cl_amd_media_ops found, setting BITALIGN");
-		if (strstr(name, "Cedar") ||
-		    strstr(name, "Redwood") ||
-		    strstr(name, "Juniper") ||
-		    strstr(name, "Cypress" ) ||
-		    strstr(name, "Hemlock" ) ||
-		    strstr(name, "Caicos" ) ||
-		    strstr(name, "Turks" ) ||
-		    strstr(name, "Barts" ) ||
-		    strstr(name, "Cayman" ) ||
-		    strstr(name, "Antilles" ) ||
-		    strstr(name, "Wrestler" ) ||
-		    strstr(name, "Zacate" ) ||
-		    strstr(name, "WinterPark" ) ||
-		    strstr(name, "BeaverCreek" ))
-			patchbfi = true;
 	} else if (opt_debug)
 		applog(LOG_DEBUG, "cl_amd_media_ops not found, will not set BITALIGN");
 
