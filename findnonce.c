@@ -180,7 +180,7 @@ static void send_nonce(struct pc_data *pcd, cl_uint nonce)
 	E = blk->cty_e; F = blk->cty_f;
 	G = blk->cty_g; H = blk->cty_h;
 	W[0] = blk->merkle; W[1] = blk->ntime;
-	W[2] = blk->nbits; W[3] = nonce;;
+	W[2] = blk->nbits; W[3] = nonce;
 	W[4] = 0x80000000; W[5] = 0x00000000; W[6] = 0x00000000; W[7] = 0x00000000;
 	W[8] = 0x00000000; W[9] = 0x00000000; W[10] = 0x00000000; W[11] = 0x00000000;
 	W[12] = 0x00000000; W[13] = 0x00000000; W[14] = 0x00000000; W[15] = 0x00000280;
@@ -204,7 +204,7 @@ static void send_nonce(struct pc_data *pcd, cl_uint nonce)
 	FR(32); FR(40);
 	FR(48); PFR(56);
 
-	if (likely(H == 0xA41F32E7)) {
+	if (likely(H == 0xa41f32e7)) {
 		if (unlikely(submit_nonce(thr, work, nonce) == false))
 			applog(LOG_ERR, "Failed to submit work, exiting");
 	} else {
