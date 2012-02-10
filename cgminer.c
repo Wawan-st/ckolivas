@@ -205,7 +205,7 @@ static bool config_loaded = false;
 	static char *opt_stderr_cmd = NULL;
 #endif // defined(unix)
 
-enum cl_kernel chosen_kernel;
+enum cl_kernels chosen_kernel;
 
 bool ping = true;
 
@@ -238,16 +238,16 @@ static bool time_before(struct tm *tm1, struct tm *tm2)
 static bool should_run(void)
 {
 	struct timeval tv;
-	struct tm tm;
+	struct tm *tm;
 
 	if (!schedstart.enable && !schedstop.enable)
 		return true;
 
 	gettimeofday(&tv, NULL);
-	localtime_r(&tv.tv_sec, &tm);
+	tm = localtime(&tv.tv_sec);
 	if (schedstart.enable) {
 		if (!schedstop.enable) {
-			if (time_before(&tm, &schedstart.tm))
+			if (time_before(tm, &schedstart.tm))
 				return false;
 
 			/* This is a once off event with no stop time set */
@@ -255,46 +255,46 @@ static bool should_run(void)
 			return true;
 		}
 		if (time_before(&schedstart.tm, &schedstop.tm)) {
-			if (time_before(&tm, &schedstop.tm) && !time_before(&tm, &schedstart.tm))
+			if (time_before(tm, &schedstop.tm) && !time_before(tm, &schedstart.tm))
 				return true;
 			return false;
 		} /* Times are reversed */
-		if (time_before(&tm, &schedstart.tm)) {
-			if (time_before(&tm, &schedstop.tm))
+		if (time_before(tm, &schedstart.tm)) {
+			if (time_before(tm, &schedstop.tm))
 				return true;
 			return false;
 		}
 		return true;
 	}
 	/* only schedstop.enable == true */
-	if (!time_before(&tm, &schedstop.tm))
+	if (!time_before(tm, &schedstop.tm))
 		return false;
 	return true;
 }
 
 void get_datestamp(char *f, struct timeval *tv)
 {
-	struct tm tm;
+	struct tm *tm;
 
-	localtime_r(&tv->tv_sec, &tm);
+	tm = localtime(&tv->tv_sec);
 	sprintf(f, "[%d-%02d-%02d %02d:%02d:%02d]",
-		tm.tm_year + 1900,
-		tm.tm_mon + 1,
-		tm.tm_mday,
-		tm.tm_hour,
-		tm.tm_min,
-		tm.tm_sec);
+		tm->tm_year + 1900,
+		tm->tm_mon + 1,
+		tm->tm_mday,
+		tm->tm_hour,
+		tm->tm_min,
+		tm->tm_sec);
 }
 
 void get_timestamp(char *f, struct timeval *tv)
 {
-	struct tm tm;
+	struct tm *tm;
 
-	localtime_r(&tv->tv_sec, &tm);
+	tm = localtime(&tv->tv_sec);
 	sprintf(f, "[%02d:%02d:%02d]",
-		tm.tm_hour,
-		tm.tm_min,
-		tm.tm_sec);
+		tm->tm_hour,
+		tm->tm_min,
+		tm->tm_sec);
 }
 
 static void applog_and_exit(const char *fmt, ...)
@@ -1706,7 +1706,6 @@ static bool workio_get_work(struct workio_cmd *wc)
 static bool stale_work(struct work *work, bool share)
 {
 	struct timeval now;
-	bool ret = false;
 
 	gettimeofday(&now, NULL);
 	if (share) {
@@ -1716,8 +1715,12 @@ static bool stale_work(struct work *work, bool share)
 		return true;
 
 	if (work->work_block != work_block)
-		ret = true;
-	return ret;
+		return true;
+
+	if (opt_fail_only && !share && work->pool != current_pool())
+		return true;
+
+	return false;
 }
 
 static void *submit_work_thread(void *userdata)
@@ -2899,12 +2902,18 @@ static void pool_resus(struct pool *pool)
 		switch_pools(NULL);
 }
 
+static long requested_tv_sec;
+
 static bool queue_request(struct thr_info *thr, bool needed)
 {
-	struct workio_cmd *wc;
 	int rq = requests_queued();
+	struct workio_cmd *wc;
+	struct timeval now;
 
-	if (rq >= mining_threads + staged_clones)
+	gettimeofday(&now, NULL);
+
+	if (rq >= mining_threads + staged_clones &&
+	    (now.tv_sec - requested_tv_sec) < opt_scantime * 2 / 3)
 		return true;
 
 	/* fill out work request message */
@@ -2936,6 +2945,7 @@ static bool queue_request(struct thr_info *thr, bool needed)
 		return false;
 	}
 
+	requested_tv_sec = now.tv_sec;
 	inc_queued();
 	return true;
 }
