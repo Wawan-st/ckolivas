@@ -11,6 +11,7 @@
 #include <curl/curl.h>
 #include "elist.h"
 #include "uthash.h"
+#include "logging.h"
 
 #ifdef HAVE_OPENCL
 #ifdef __APPLE_CC__
@@ -60,30 +61,6 @@ void *alloca (size_t);
  #include "ADL_SDK/adl_sdk.h"
 #endif
 
-#ifdef __SSE2__
-#define WANT_SSE2_4WAY 1
-#endif
-
-#ifdef __ALTIVEC__
-#define WANT_ALTIVEC_4WAY 1
-#endif
-
-#if defined(__i386__) && defined(HAS_YASM) && defined(__SSE2__)
-#define WANT_X8632_SSE2 1
-#endif
-
-#if (defined(__i386__) || defined(__x86_64__)) &&  !defined(__APPLE__)
-#define WANT_VIA_PADLOCK 1
-#endif
-
-#if defined(__x86_64__) && defined(HAS_YASM)
-#define WANT_X8664_SSE2 1
-#endif
-
-#if defined(__x86_64__) && defined(HAS_YASM)
-#define WANT_X8664_SSE4 1
-#endif
-
 #if !defined(WIN32) && ((__GNUC__ > 4) || (__GNUC__ == 4 && __GNUC_MINOR__ >= 3))
 #define bswap_16 __builtin_bswap16
 #define bswap_32 __builtin_bswap32
@@ -126,18 +103,6 @@ void *alloca (size_t);
 #endif
 #endif
 
-#ifdef HAVE_SYSLOG_H
-#include <syslog.h>
-#else
-enum {
-	LOG_ERR,
-	LOG_WARNING,
-	LOG_NOTICE,
-	LOG_INFO,
-	LOG_DEBUG,
-};
-#endif
-
 #undef unlikely
 #undef likely
 #if defined(__GNUC__) && (__GNUC__ > 2) && defined(__OPTIMIZE__)
@@ -156,19 +121,6 @@ enum {
 #ifndef ARRAY_SIZE
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 #endif
-
-enum sha256_algos {
-	ALGO_C,			/* plain C */
-	ALGO_4WAY,		/* parallel SSE2 */
-	ALGO_VIA,		/* VIA padlock */
-	ALGO_CRYPTOPP,		/* Crypto++ (C) */
-	ALGO_CRYPTOPP_ASM32,	/* Crypto++ 32-bit assembly */
-	ALGO_SSE2_32,		/* SSE2 for x86_32 */
-	ALGO_SSE2_64,		/* SSE2 for x86_64 */
-	ALGO_SSE4_64,		/* SSE4 for x86_64 */
-	ALGO_ALTIVEC_4WAY,	/* parallel Altivec */
-};
-
 
 enum alive {
 	LIFE_WELL,
@@ -440,9 +392,7 @@ static inline void rwlock_init(pthread_rwlock_t *lock)
 
 struct pool;
 
-extern bool opt_debug;
 extern bool opt_protocol;
-extern bool opt_log_output;
 extern char *opt_kernel_path;
 extern char *opt_socks_proxy;
 extern char *cgminer_path;
@@ -473,56 +423,6 @@ typedef bool (*sha256_func)(int thr_id, const unsigned char *pmidstate,
 	uint32_t *last_nonce,
 	uint32_t nonce);
 
-extern bool ScanHash_4WaySSE2(int, const unsigned char *pmidstate,
-	unsigned char *pdata, unsigned char *phash1, unsigned char *phash,
-	const unsigned char *ptarget,
-	uint32_t max_nonce, uint32_t *last_nonce, uint32_t nonce);
-
-extern bool ScanHash_altivec_4way(int thr_id, const unsigned char *pmidstate,
-	unsigned char *pdata,
-	unsigned char *phash1, unsigned char *phash,
-	const unsigned char *ptarget,
-	uint32_t max_nonce, uint32_t *last_nonce, uint32_t nonce);
-
-extern bool scanhash_via(int, const unsigned char *pmidstate,
-	unsigned char *pdata,
-	unsigned char *phash1, unsigned char *phash,
-	const unsigned char *target,
-	uint32_t max_nonce, uint32_t *last_nonce, uint32_t n);
-
-extern bool scanhash_c(int, const unsigned char *midstate, unsigned char *data,
-	      unsigned char *hash1, unsigned char *hash,
-	      const unsigned char *target,
-	      uint32_t max_nonce, uint32_t *last_nonce, uint32_t n);
-
-extern bool scanhash_cryptopp(int, const unsigned char *midstate,unsigned char *data,
-	      unsigned char *hash1, unsigned char *hash,
-	      const unsigned char *target,
-	      uint32_t max_nonce, uint32_t *last_nonce, uint32_t n);
-
-extern bool scanhash_asm32(int, const unsigned char *midstate,unsigned char *data,
-	      unsigned char *hash1, unsigned char *hash,
-	      const unsigned char *target,
-	      uint32_t max_nonce, uint32_t *last_nonce, uint32_t nonce);
-
-extern bool scanhash_sse2_64(int, const unsigned char *pmidstate, unsigned char *pdata,
-	unsigned char *phash1, unsigned char *phash,
-	const unsigned char *ptarget,
-	uint32_t max_nonce, uint32_t *last_nonce,
-	uint32_t nonce);
-
-extern bool scanhash_sse4_64(int, const unsigned char *pmidstate, unsigned char *pdata,
-	unsigned char *phash1, unsigned char *phash,
-	const unsigned char *ptarget,
-	uint32_t max_nonce, uint32_t *last_nonce,
-	uint32_t nonce);
-
-extern bool scanhash_sse2_32(int, const unsigned char *pmidstate, unsigned char *pdata,
-	unsigned char *phash1, unsigned char *phash,
-	const unsigned char *ptarget,
-	uint32_t max_nonce, uint32_t *last_nonce,
-	uint32_t nonce);
-
 extern int
 timeval_subtract (struct timeval *result, struct timeval *x, struct timeval *y);
 
@@ -542,9 +442,6 @@ extern void kill_work(void);
 extern void reinit_device(struct cgpu_info *cgpu);
 
 #ifdef HAVE_ADL
-extern float gpu_temp(int gpu);
-extern int gpu_fanspeed(int gpu);
-extern int gpu_fanpercent(int gpu);
 extern bool gpu_stats(int gpu, float *temp, int *engineclock, int *memclock, float *vddc, int *activity, int *fanspeed, int *fanpercent, int *powertune);
 extern int set_fanspeed(int gpu, int iFanSpeed);
 extern int set_vddc(int gpu, float fVddc);
@@ -699,8 +596,6 @@ extern void switch_pools(struct pool *selected);
 extern void write_config(FILE *fcfg);
 extern void log_curses(int prio, const char *f, va_list ap);
 extern void clear_logwin(void);
-extern void vapplog(int prio, const char *fmt, va_list ap);
-extern void applog(int prio, const char *fmt, ...);
 extern struct thread_q *tq_new(void);
 extern void tq_free(struct thread_q *tq);
 extern bool tq_push(struct thread_q *tq, void *data);
