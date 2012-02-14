@@ -1370,7 +1370,6 @@ bool regeneratehash(const struct work *work)
 
 static bool submit_upstream_work(const struct work *work)
 {
-	char *hexstr = NULL;
 	json_t *val, *res;
 	char s[345], sd[345];
 	bool rc = false;
@@ -1395,11 +1394,8 @@ static bool submit_upstream_work(const struct work *work)
 #endif
 
 	/* build hex string */
-	hexstr = bin2hex(work->data, sizeof(work->data));
-	if (unlikely(!hexstr)) {
-		applog(LOG_ERR, "submit_upstream_work OOM");
-		goto out_nofree;
-	}
+	char hexstr[(sizeof(work->data) * 2) + 1];
+	bin2hex(hexstr, work->data, sizeof(work->data));
 
 	/* build JSON-RPC request */
 	sprintf(s,
@@ -1511,8 +1507,6 @@ static bool submit_upstream_work(const struct work *work)
 
 	rc = true;
 out:
-	free(hexstr);
-out_nofree:
 	curl_easy_cleanup(curl);
 	return rc;
 }
@@ -2014,6 +2008,7 @@ static void set_curblock(char *hexstr, unsigned char *hash)
 	unsigned char hash_swap[32];
 	char *old_hash = NULL;
 	struct timeval tv_now;
+	char new_hash[33];
 
 	/* Don't free current_hash directly to avoid dereferencing it when
 	 * we might be accessing its data elsewhere */
@@ -2023,7 +2018,8 @@ static void set_curblock(char *hexstr, unsigned char *hash)
 	gettimeofday(&tv_now, NULL);
 	get_timestamp(blocktime, &tv_now);
 	swap256(hash_swap, hash);
-	current_hash = bin2hex(hash_swap, 16);
+	bin2hex(new_hash, hash_swap, 16);
+	current_hash = strdup(new_hash);
 	if (unlikely(!current_hash))
 		quit (1, "set_curblock OOM");
 	if (old_hash)
@@ -2046,27 +2042,19 @@ static bool block_exists(char *hexstr)
 /* Tests if this work is from a block that has been seen before */
 static inline bool from_existing_block(struct work *work)
 {
-	char *hexstr = bin2hex(work->data, 18);
+	char hexstr[37];
+	bin2hex(hexstr, work->data, 18);
 	bool ret;
 
-	if (unlikely(!hexstr)) {
-		applog(LOG_ERR, "from_existing_block OOM");
-		return true;
-	}
 	ret = block_exists(hexstr);
-	free(hexstr);
 	return ret;
 }
 
 static void test_work_current(struct work *work, bool longpoll)
 {
-	char *hexstr;
+	char hexstr[37];
 
-	hexstr = bin2hex(work->data, 18);
-	if (unlikely(!hexstr)) {
-		applog(LOG_ERR, "stage_thread OOM");
-		return;
-	}
+	bin2hex(hexstr, work->data, 18);
 
 	/* Search to see if this block exists yet and if not, consider it a
 	 * new block and set the current block details to this one */
@@ -2081,7 +2069,7 @@ static void test_work_current(struct work *work, bool longpoll)
 		wr_unlock(&blk_lock);
 		set_curblock(hexstr, work->data);
 		if (unlikely(++new_blocks == 1))
-			goto out_free;
+			return;
 
 		work_block++;
 
@@ -2097,8 +2085,6 @@ static void test_work_current(struct work *work, bool longpoll)
 		work_block++;
 		restart_threads();
 	}
-out_free:
-	free(hexstr);
 }
 
 static int tv_sort(struct work *worka, struct work *workb)

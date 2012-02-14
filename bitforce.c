@@ -204,6 +204,7 @@ static uint64_t bitforce_scanhash(struct thr_info *thr, struct work *work, uint6
 	unsigned char ob[61] = ">>>>>>>>12345678901234567890123456789012123456789012>>>>>>>>";
 	int i;
 	char *pnoncebuf;
+	char dbgbuf[89];
 	uint32_t nonce;
 
 	BFwrite(fdDev, "ZDX", 3);
@@ -221,7 +222,8 @@ static uint64_t bitforce_scanhash(struct thr_info *thr, struct work *work, uint6
 	memcpy(ob + 8, work->midstate, 32);
 	memcpy(ob + 8 + 32, work->data + 64, 12);
 	BFwrite(fdDev, ob, 60);
-	applog(LOG_DEBUG, "BitForce block data: %s", bin2hex(ob + 8, 44));
+	bin2hex(dbgbuf, ob + 8, 44);
+	applog(LOG_DEBUG, "BitForce block data: %s", dbgbuf);
 
 	BFgets(pdevbuf, sizeof(pdevbuf), fdDev);
 	if (unlikely(!pdevbuf[0]))

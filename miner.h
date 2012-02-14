@@ -402,7 +402,7 @@ extern const uint32_t sha256_init_state[];
 extern json_t *json_rpc_call(CURL *curl, const char *url, const char *userpass,
 			     const char *rpc_req, bool, bool, bool *,
 			     struct pool *pool, bool);
-extern char *bin2hex(const unsigned char *p, size_t len);
+extern void bin2hex(char *, const unsigned char *p, size_t len);
 extern bool hex2bin(unsigned char *p, const char *hexstr, size_t len);
 
 typedef bool (*sha256_func)(int thr_id, const unsigned char *pmidstate,
