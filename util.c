@@ -429,18 +429,12 @@ err_out:
 	return NULL;
 }
 
-char *bin2hex(const unsigned char *p, size_t len)
+void bin2hex(char *s, const unsigned char *p, size_t len)
 {
 	unsigned int i;
-	char *s = malloc((len * 2) + 1);
-
-	if (!s)
-		return NULL;
 
 	for (i = 0; i < len; i++)
 		sprintf(s + (i * 2), "%02x", (unsigned int) p[i]);
-
-	return s;
 }
 
 bool hex2bin(unsigned char *p, const char *hexstr, size_t len)
@@ -509,7 +503,6 @@ bool fulltest(const unsigned char *hash, const unsigned char *target)
 	uint32_t *target32 = (uint32_t *) target_swap;
 	int i;
 	bool rc = true;
-	char *hash_str, *target_str;
 
 	swap256(hash_swap, hash);
 	swap256(target_swap, target);
@@ -531,17 +524,16 @@ bool fulltest(const unsigned char *hash, const unsigned char *target)
 	}
 
 	if (opt_debug) {
-		hash_str = bin2hex(hash_swap, 32);
-		target_str = bin2hex(target_swap, 32);
+		char hash_str[65];
+		char target_str[65];
+		bin2hex(hash_str, hash_swap, 32);
+		bin2hex(target_str, target_swap, 32);
 
 		applog(LOG_DEBUG, " Proof: %s\nTarget: %s\nTrgVal? %s",
 			hash_str,
 			target_str,
 			rc ? "YES (hash < target)" :
 			     "no (false positive; hash > target)");
-
-		free(hash_str);
-		free(target_str);
 	}
 
 	return rc;
