@@ -16,25 +16,22 @@
 #ifdef BITALIGN
 	#pragma OPENCL EXTENSION cl_amd_media_ops : enable
 	#ifdef BFI_INT
-		#define Ch(x, y, z) amd_bytealign(x, y, z)
-		#define Ma(x, y, z) amd_bytealign(z ^ x, y, x)
+		#define ch(x, y, z) amd_bytealign(x, y, z)
+		#define ma(x, y, z) amd_bytealign(z ^ x, y, x)
 	#else
-		#define Ch(x, y, z) bitselect(z, y, x)
+		#define ch(x, y, z) bitselect(z, y, x)
 		#if defined(VECTORS2) || defined(VECTORS4) || defined(VECTORS8)
-			// GCN - VEC2 or VEC4
-			#define Ma(z, x, y) bitselect(z, y, z ^ x)
+			// GCN - VEC2 or VEC4 or VEC8
+			#define ma(z, x, y) bitselect(z, y, z ^ x)
 		#else
 			// GCN - no VEC
-			#define Ma(z, x, y) Ch(z ^ x, y, x)
+			#define ma(z, x, y) ch(z ^ x, y, x)
 		#endif
 	#endif
 #else //BITALIGN
-	#define Ch(x, y, z) (z ^ (x & (y ^ z)))
-	#define Ma(x, y, z) ((x & z) | (y & (x | z)))
+	#define ch(x, y, z) (z ^ (x & (y ^ z)))
+	#define ma(x, y, z) ((x & z) | (y & (x | z)))
 #endif
-
-#define ch(n) Ch(V[(4 + 128 - n) % 8], V[(5 + 128 - n) % 8], V[(6 + 128 - n) % 8])
-#define ma(n) Ma(V[(1 + 128 - n) % 8], V[(2 + 128 - n) % 8], V[(0 + 128 - n) % 8])
 
 #define rotr15(n) (rotate(n, 15U) ^ rotate(n, 13U) ^ (n >> 10U))
 #define rotr25(n) (rotate(n, 25U) ^ rotate(n, 14U) ^ (n >> 3U))
@@ -91,47 +88,47 @@ __kernel
 	V[0] = PreVal0 + nonce;
 	V[4] = PreVal4 + nonce;
 
-	V[7] = H1 + (V[3] = D1A + Ch(V[0], B1, C1) + rotr26(V[0]));
-	V[3] += rotr30(V[4]) + Ma(F1, G1, V[4]);
+	V[7] = H1 + (V[3] = D1A + ch(V[0], B1, C1) + rotr26(V[0]));
+	V[3] += rotr30(V[4]) + ma(F1, G1, V[4]);
 
-	V[6] = G1 + (V[2] = C1addK5 + Ch(V[7], V[0], B1) + rotr26(V[7]));
-	V[2] += rotr30(V[3]) + Ma(V[4], F1, V[3]);
+	V[6] = G1 + (V[2] = C1addK5 + ch(V[7], V[0], B1) + rotr26(V[7]));
+	V[2] += rotr30(V[3]) + ma(V[4], F1, V[3]);
 
-	V[5] = F1 + (V[1] = B1addK6 + Ch(V[6], V[7], V[0]) + rotr26(V[6]));
-	V[1] += rotr30(V[2]) + Ma(V[3], V[4], V[2]);
+	V[5] = F1 + (V[1] = B1addK6 + ch(V[6], V[7], V[0]) + rotr26(V[6]));
+	V[1] += rotr30(V[2]) + ma(V[3], V[4], V[2]);
 
-	V[4] += nonce + PreVal0addK7 + Ch(V[5], V[6], V[7]) + rotr26(V[5]);
-	V[0] =  nonce + PreVal0addK7 + Ch(V[5], V[6], V[7]) + rotr26(V[5]) + rotr30(V[1]) + Ma(V[2], V[3], V[1]);
+	V[4] += nonce + PreVal0addK7 + ch(V[5], V[6], V[7]) + rotr26(V[5]);
+	V[0] =  nonce + PreVal0addK7 + ch(V[5], V[6], V[7]) + rotr26(V[5]) + rotr30(V[1]) + ma(V[2], V[3], V[1]);
 
-	V[3] += 0xd807aa98 + V[7] + Ch(V[4], V[5], V[6]) + rotr26(V[4]);
-	V[7] =  0xd807aa98 + V[7] + Ch(V[4], V[5], V[6]) + rotr26(V[4]) + rotr30(V[0]) + Ma(V[1], V[2], V[0]);
+	V[3] += 0xd807aa98 + V[7] + ch(V[4], V[5], V[6]) + rotr26(V[4]);
+	V[7] =  0xd807aa98 + V[7] + ch(V[4], V[5], V[6]) + rotr26(V[4]) + rotr30(V[0]) + ma(V[1], V[2], V[0]);
 
-	V[2] += 0x12835b01 + V[6] + Ch(V[3], V[4], V[5]) + rotr26(V[3]);
-	V[6] =  0x12835b01 + V[6] + Ch(V[3], V[4], V[5]) + rotr26(V[3]) + rotr30(V[7]) + Ma(V[0], V[1], V[7]);
+	V[2] += 0x12835b01 + V[6] + ch(V[3], V[4], V[5]) + rotr26(V[3]);
+	V[6] =  0x12835b01 + V[6] + ch(V[3], V[4], V[5]) + rotr26(V[3]) + rotr30(V[7]) + ma(V[0], V[1], V[7]);
 
-	V[1] += 0x243185be + V[5] + Ch(V[2], V[3], V[4]) + rotr26(V[2]);
-	V[5] =  0x243185be + V[5] + Ch(V[2], V[3], V[4]) + rotr26(V[2]) + rotr30(V[6]) + Ma(V[7], V[0], V[6]);
+	V[1] += 0x243185be + V[5] + ch(V[2], V[3], V[4]) + rotr26(V[2]);
+	V[5] =  0x243185be + V[5] + ch(V[2], V[3], V[4]) + rotr26(V[2]) + rotr30(V[6]) + ma(V[7], V[0], V[6]);
 
-	V[0] += 0x550c7dc3 + V[4] + Ch(V[1], V[2], V[3]) + rotr26(V[1]);
-	V[4] =  0x550c7dc3 + V[4] + Ch(V[1], V[2], V[3]) + rotr26(V[1]) + rotr30(V[5]) + Ma(V[6], V[7], V[5]);
+	V[0] += 0x550c7dc3 + V[4] + ch(V[1], V[2], V[3]) + rotr26(V[1]);
+	V[4] =  0x550c7dc3 + V[4] + ch(V[1], V[2], V[3]) + rotr26(V[1]) + rotr30(V[5]) + ma(V[6], V[7], V[5]);
 
-	V[7] += 0x72be5d74 + V[3] + Ch(V[0], V[1], V[2]) + rotr26(V[0]);
-	V[3] =  0x72be5d74 + V[3] + Ch(V[0], V[1], V[2]) + rotr26(V[0]) + rotr30(V[4]) + Ma(V[5], V[6], V[4]);
+	V[7] += 0x72be5d74 + V[3] + ch(V[0], V[1], V[2]) + rotr26(V[0]);
+	V[3] =  0x72be5d74 + V[3] + ch(V[0], V[1], V[2]) + rotr26(V[0]) + rotr30(V[4]) + ma(V[5], V[6], V[4]);
 
-	V[6] += 0x80deb1fe + V[2] + Ch(V[7], V[0], V[1]) + rotr26(V[7]);
-	V[2] =  0x80deb1fe + V[2] + Ch(V[7], V[0], V[1]) + rotr26(V[7]) + rotr30(V[3]) + Ma(V[4], V[5], V[3]);
+	V[6] += 0x80deb1fe + V[2] + ch(V[7], V[0], V[1]) + rotr26(V[7]);
+	V[2] =  0x80deb1fe + V[2] + ch(V[7], V[0], V[1]) + rotr26(V[7]) + rotr30(V[3]) + ma(V[4], V[5], V[3]);
 
-	V[5] += 0x9bdc06a7 + V[1] + Ch(V[6], V[7], V[0]) + rotr26(V[6]);
-	V[1] =  0x9bdc06a7 + V[1] + Ch(V[6], V[7], V[0]) + rotr26(V[6]) + rotr30(V[2]) + Ma(V[3], V[4], V[2]);
+	V[5] += 0x9bdc06a7 + V[1] + ch(V[6], V[7], V[0]) + rotr26(V[6]);
+	V[1] =  0x9bdc06a7 + V[1] + ch(V[6], V[7], V[0]) + rotr26(V[6]) + rotr30(V[2]) + ma(V[3], V[4], V[2]);
 
-	V[4] += 0xc19bf3f4 + V[0] + Ch(V[5], V[6], V[7]) + rotr26(V[5]);
-	V[0] =  0xc19bf3f4 + V[0] + Ch(V[5], V[6], V[7]) + rotr26(V[5]) + rotr30(V[1]) + Ma(V[2], V[3], V[1]);
+	V[4] += 0xc19bf3f4 + V[0] + ch(V[5], V[6], V[7]) + rotr26(V[5]);
+	V[0] =  0xc19bf3f4 + V[0] + ch(V[5], V[6], V[7]) + rotr26(V[5]) + rotr30(V[1]) + ma(V[2], V[3], V[1]);
 
-	V[3] += W16addK16 + V[7] + Ch(V[4], V[5], V[6]) + rotr26(V[4]);
-	V[7] =  W16addK16 + V[7] + Ch(V[4], V[5], V[6]) + rotr26(V[4]) + rotr30(V[0]) + Ma(V[1], V[2], V[0]);
+	V[3] += W16addK16 + V[7] + ch(V[4], V[5], V[6]) + rotr26(V[4]);
+	V[7] =  W16addK16 + V[7] + ch(V[4], V[5], V[6]) + rotr26(V[4]) + rotr30(V[0]) + ma(V[1], V[2], V[0]);
 
-	V[2] += W17addK17 + V[6] + Ch(V[3], V[4], V[5]) + rotr26(V[3]);
-	V[6] =  W17addK17 + V[6] + Ch(V[3], V[4], V[5]) + rotr26(V[3]) + rotr30(V[7]) + Ma(V[0], V[1], V[7]);
+	V[2] += W17addK17 + V[6] + ch(V[3], V[4], V[5]) + rotr26(V[3]);
+	V[6] =  W17addK17 + V[6] + ch(V[3], V[4], V[5]) + rotr26(V[3]) + rotr30(V[7]) + ma(V[0], V[1], V[7]);
 
 //----------------------------------------------------------------------------------
 
@@ -161,53 +158,53 @@ __kernel
 	W[14] = W[7] + PreW32 + rotr15(W[12]);
 	W[15] = W[8] + W17 + rotr15(W[13]) + rotr25(W[0]);
 
-	V[1] += 0x0fc19dc6 + V[5] + W[0] + Ch(V[2], V[3], V[4]) + rotr26(V[2]);
-	V[5] =  0x0fc19dc6 + V[5] + W[0] + Ch(V[2], V[3], V[4]) + rotr26(V[2]) + rotr30(V[6]) + Ma(V[7], V[0], V[6]);
+	V[1] += 0x0fc19dc6 + V[5] + W[0] + ch(V[2], V[3], V[4]) + rotr26(V[2]);
+	V[5] =  0x0fc19dc6 + V[5] + W[0] + ch(V[2], V[3], V[4]) + rotr26(V[2]) + rotr30(V[6]) + ma(V[7], V[0], V[6]);
 
-	V[0] += 0x240ca1cc + V[4] + W[1] + Ch(V[1], V[2], V[3]) + rotr26(V[1]);
-	V[4] =  0x240ca1cc + V[4] + W[1] + Ch(V[1], V[2], V[3]) + rotr26(V[1]) + rotr30(V[5]) + Ma(V[6], V[7], V[5]);
+	V[0] += 0x240ca1cc + V[4] + W[1] + ch(V[1], V[2], V[3]) + rotr26(V[1]);
+	V[4] =  0x240ca1cc + V[4] + W[1] + ch(V[1], V[2], V[3]) + rotr26(V[1]) + rotr30(V[5]) + ma(V[6], V[7], V[5]);
 
-	V[7] += 0x2de92c6f + V[3] + W[2] + Ch(V[0], V[1], V[2]) + rotr26(V[0]);
-	V[3] =  0x2de92c6f + V[3] + W[2] + Ch(V[0], V[1], V[2]) + rotr26(V[0]) + rotr30(V[4]) + Ma(V[5], V[6], V[4]);
+	V[7] += 0x2de92c6f + V[3] + W[2] + ch(V[0], V[1], V[2]) + rotr26(V[0]);
+	V[3] =  0x2de92c6f + V[3] + W[2] + ch(V[0], V[1], V[2]) + rotr26(V[0]) + rotr30(V[4]) + ma(V[5], V[6], V[4]);
 
-	V[6] += 0x4a7484aa + V[2] + W[3] + Ch(V[7], V[0], V[1]) + rotr26(V[7]);
-	V[2] =  0x4a7484aa + V[2] + W[3] + Ch(V[7], V[0], V[1]) + rotr26(V[7]) + rotr30(V[3]) + Ma(V[4], V[5], V[3]);
+	V[6] += 0x4a7484aa + V[2] + W[3] + ch(V[7], V[0], V[1]) + rotr26(V[7]);
+	V[2] =  0x4a7484aa + V[2] + W[3] + ch(V[7], V[0], V[1]) + rotr26(V[7]) + rotr30(V[3]) + ma(V[4], V[5], V[3]);
 
-	V[5] += 0x5cb0a9dc + V[1] + W[4] + Ch(V[6], V[7], V[0]) + rotr26(V[6]);
-	V[1] =  0x5cb0a9dc + V[1] + W[4] + Ch(V[6], V[7], V[0]) + rotr26(V[6]) + rotr30(V[2]) + Ma(V[3], V[4], V[2]);
+	V[5] += 0x5cb0a9dc + V[1] + W[4] + ch(V[6], V[7], V[0]) + rotr26(V[6]);
+	V[1] =  0x5cb0a9dc + V[1] + W[4] + ch(V[6], V[7], V[0]) + rotr26(V[6]) + rotr30(V[2]) + ma(V[3], V[4], V[2]);
 
-	V[4] += 0x76f988da + V[0] + W[5] + Ch(V[5], V[6], V[7]) + rotr26(V[5]);
-	V[0] =  0x76f988da + V[0] + W[5] + Ch(V[5], V[6], V[7]) + rotr26(V[5]) + rotr30(V[1]) + Ma(V[2], V[3], V[1]);
+	V[4] += 0x76f988da + V[0] + W[5] + ch(V[5], V[6], V[7]) + rotr26(V[5]);
+	V[0] =  0x76f988da + V[0] + W[5] + ch(V[5], V[6], V[7]) + rotr26(V[5]) + rotr30(V[1]) + ma(V[2], V[3], V[1]);
 
-	V[3] += 0x983e5152 + V[7] + W[6] + Ch(V[4], V[5], V[6]) + rotr26(V[4]);
-	V[7] =  0x983e5152 + V[7] + W[6] + Ch(V[4], V[5], V[6]) + rotr26(V[4]) + rotr30(V[0]) + Ma(V[1], V[2], V[0]);
+	V[3] += 0x983e5152 + V[7] + W[6] + ch(V[4], V[5], V[6]) + rotr26(V[4]);
+	V[7] =  0x983e5152 + V[7] + W[6] + ch(V[4], V[5], V[6]) + rotr26(V[4]) + rotr30(V[0]) + ma(V[1], V[2], V[0]);
 
-	V[2] += 0xa831c66d + V[6] + W[7] + Ch(V[3], V[4], V[5]) + rotr26(V[3]);
-	V[6] =  0xa831c66d + V[6] + W[7] + Ch(V[3], V[4], V[5]) + rotr26(V[3]) + rotr30(V[7]) + Ma(V[0], V[1], V[7]);
+	V[2] += 0xa831c66d + V[6] + W[7] + ch(V[3], V[4], V[5]) + rotr26(V[3]);
+	V[6] =  0xa831c66d + V[6] + W[7] + ch(V[3], V[4], V[5]) + rotr26(V[3]) + rotr30(V[7]) + ma(V[0], V[1], V[7]);
 
-	V[1] += 0xb00327c8 + V[5] + W[8] + Ch(V[2], V[3], V[4]) + rotr26(V[2]);
-	V[5] =  0xb00327c8 + V[5] + W[8] + Ch(V[2], V[3], V[4]) + rotr26(V[2]) + rotr30(V[6]) + Ma(V[7], V[0], V[6]);
+	V[1] += 0xb00327c8 + V[5] + W[8] + ch(V[2], V[3], V[4]) + rotr26(V[2]);
+	V[5] =  0xb00327c8 + V[5] + W[8] + ch(V[2], V[3], V[4]) + rotr26(V[2]) + rotr30(V[6]) + ma(V[7], V[0], V[6]);
 
-	V[0] += 0xbf597fc7 + V[4] + W[9] + Ch(V[1], V[2], V[3]) + rotr26(V[1]);
-	V[4] =  0xbf597fc7 + V[4] + W[9] + Ch(V[1], V[2], V[3]) + rotr26(V[1]) + rotr30(V[5]) + Ma(V[6], V[7], V[5]);
+	V[0] += 0xbf597fc7 + V[4] + W[9] + ch(V[1], V[2], V[3]) + rotr26(V[1]);
+	V[4] =  0xbf597fc7 + V[4] + W[9] + ch(V[1], V[2], V[3]) + rotr26(V[1]) + rotr30(V[5]) + ma(V[6], V[7], V[5]);
 
-	V[7] += 0xc6e00bf3 + V[3] + W[10] + Ch(V[0], V[1], V[2]) + rotr26(V[0]);
-	V[3] =  0xc6e00bf3 + V[3] + W[10] + Ch(V[0], V[1], V[2]) + rotr26(V[0]) + rotr30(V[4]) + Ma(V[5], V[6], V[4]);
+	V[7] += 0xc6e00bf3 + V[3] + W[10] + ch(V[0], V[1], V[2]) + rotr26(V[0]);
+	V[3] =  0xc6e00bf3 + V[3] + W[10] + ch(V[0], V[1], V[2]) + rotr26(V[0]) + rotr30(V[4]) + ma(V[5], V[6], V[4]);
 
-	V[6] += 0xd5a79147 + V[2] + W[11] + Ch(V[7], V[0], V[1]) + rotr26(V[7]);
-	V[2] =  0xd5a79147 + V[2] + W[11] + Ch(V[7], V[0], V[1]) + rotr26(V[7]) + rotr30(V[3]) + Ma(V[4], V[5], V[3]);
+	V[6] += 0xd5a79147 + V[2] + W[11] + ch(V[7], V[0], V[1]) + rotr26(V[7]);
+	V[2] =  0xd5a79147 + V[2] + W[11] + ch(V[7], V[0], V[1]) + rotr26(V[7]) + rotr30(V[3]) + ma(V[4], V[5], V[3]);
 
-	V[5] += 0x06ca6351 + V[1] + W[12] + Ch(V[6], V[7], V[0]) + rotr26(V[6]);
-	V[1] =  0x06ca6351 + V[1] + W[12] + Ch(V[6], V[7], V[0]) + rotr26(V[6]) + rotr30(V[2]) + Ma(V[3], V[4], V[2]);
+	V[5] += 0x06ca6351 + V[1] + W[12] + ch(V[6], V[7], V[0]) + rotr26(V[6]);
+	V[1] =  0x06ca6351 + V[1] + W[12] + ch(V[6], V[7], V[0]) + rotr26(V[6]) + rotr30(V[2]) + ma(V[3], V[4], V[2]);
 
-	V[4] += 0x14292967 + V[0] + W[13] + Ch(V[5], V[6], V[7]) + rotr26(V[5]);
-	V[0] =  0x14292967 + V[0] + W[13] + Ch(V[5], V[6], V[7]) + rotr26(V[5]) + rotr30(V[1]) + Ma(V[2], V[3], V[1]);
+	V[4] += 0x14292967 + V[0] + W[13] + ch(V[5], V[6], V[7]) + rotr26(V[5]);
+	V[0] =  0x14292967 + V[0] + W[13] + ch(V[5], V[6], V[7]) + rotr26(V[5]) + rotr30(V[1]) + ma(V[2], V[3], V[1]);
 
-	V[3] += 0x27b70a85 + V[7] + W[14] + Ch(V[4], V[5], V[6]) + rotr26(V[4]);
-	V[7] =  0x27b70a85 + V[7] + W[14] + Ch(V[4], V[5], V[6]) + rotr26(V[4]) + rotr30(V[0]) + Ma(V[1], V[2], V[0]);
+	V[3] += 0x27b70a85 + V[7] + W[14] + ch(V[4], V[5], V[6]) + rotr26(V[4]);
+	V[7] =  0x27b70a85 + V[7] + W[14] + ch(V[4], V[5], V[6]) + rotr26(V[4]) + rotr30(V[0]) + ma(V[1], V[2], V[0]);
 
-	V[2] += 0x2e1b2138 + V[6] + W[15] + Ch(V[3], V[4], V[5]) + rotr26(V[3]);
-	V[6] =  0x2e1b2138 + V[6] + W[15] + Ch(V[3], V[4], V[5]) + rotr26(V[3]) + rotr30(V[7]) + Ma(V[0], V[1], V[7]);
+	V[2] += 0x2e1b2138 + V[6] + W[15] + ch(V[3], V[4], V[5]) + rotr26(V[3]);
+	V[6] =  0x2e1b2138 + V[6] + W[15] + ch(V[3], V[4], V[5]) + rotr26(V[3]) + rotr30(V[7]) + ma(V[0], V[1], V[7]);
 
 //----------------------------------------------------------------------------------
 
@@ -228,53 +225,53 @@ __kernel
 	W[14] = W[14] +  W[7] + rotr15(W[12]) + rotr25(W[15]);
 	W[15] = W[15] +  W[8] + rotr15(W[13]) + rotr25( W[0]);
 
-	V[1] += 0x4d2c6dfc + V[5] + W[0] + Ch(V[2], V[3], V[4]) + rotr26(V[2]);
-	V[5] =  0x4d2c6dfc + V[5] + W[0] + Ch(V[2], V[3], V[4]) + rotr26(V[2]) + rotr30(V[6]) + Ma(V[7], V[0], V[6]);
+	V[1] += 0x4d2c6dfc + V[5] + W[0] + ch(V[2], V[3], V[4]) + rotr26(V[2]);
+	V[5] =  0x4d2c6dfc + V[5] + W[0] + ch(V[2], V[3], V[4]) + rotr26(V[2]) + rotr30(V[6]) + ma(V[7], V[0], V[6]);
 
-	V[0] += 0x53380d13 + V[4] + W[1] + Ch(V[1], V[2], V[3]) + rotr26(V[1]);
-	V[4] =  0x53380d13 + V[4] + W[1] + Ch(V[1], V[2], V[3]) + rotr26(V[1]) + rotr30(V[5]) + Ma(V[6], V[7], V[5]);
+	V[0] += 0x53380d13 + V[4] + W[1] + ch(V[1], V[2], V[3]) + rotr26(V[1]);
+	V[4] =  0x53380d13 + V[4] + W[1] + ch(V[1], V[2], V[3]) + rotr26(V[1]) + rotr30(V[5]) + ma(V[6], V[7], V[5]);
 
-	V[7] += 0x650a7354 + V[3] + W[2] + Ch(V[0], V[1], V[2]) + rotr26(V[0]);
-	V[3] =  0x650a7354 + V[3] + W[2] + Ch(V[0], V[1], V[2]) + rotr26(V[0]) + rotr30(V[4]) + Ma(V[5], V[6], V[4]);
+	V[7] += 0x650a7354 + V[3] + W[2] + ch(V[0], V[1], V[2]) + rotr26(V[0]);
+	V[3] =  0x650a7354 + V[3] + W[2] + ch(V[0], V[1], V[2]) + rotr26(V[0]) + rotr30(V[4]) + ma(V[5], V[6], V[4]);
 
-	V[6] += 0x766a0abb + V[2] + W[3] + Ch(V[7], V[0], V[1]) + rotr26(V[7]);
-	V[2] =  0x766a0abb + V[2] + W[3] + Ch(V[7], V[0], V[1]) + rotr26(V[7]) + rotr30(V[3]) + Ma(V[4], V[5], V[3]);
+	V[6] += 0x766a0abb + V[2] + W[3] + ch(V[7], V[0], V[1]) + rotr26(V[7]);
+	V[2] =  0x766a0abb + V[2] + W[3] + ch(V[7], V[0], V[1]) + rotr26(V[7]) + rotr30(V[3]) + ma(V[4], V[5], V[3]);
 
-	V[5] += 0x81c2c92e + V[1] + W[4] + Ch(V[6], V[7], V[0]) + rotr26(V[6]);
-	V[1] =  0x81c2c92e + V[1] + W[4] + Ch(V[6], V[7], V[0]) + rotr26(V[6]) + rotr30(V[2]) + Ma(V[3], V[4], V[2]);
+	V[5] += 0x81c2c92e + V[1] + W[4] + ch(V[6], V[7], V[0]) + rotr26(V[6]);
+	V[1] =  0x81c2c92e + V[1] + W[4] + ch(V[6], V[7], V[0]) + rotr26(V[6]) + rotr30(V[2]) + ma(V[3], V[4], V[2]);
 
-	V[4] += 0x92722c85 + V[0] + W[5] + Ch(V[5], V[6], V[7]) + rotr26(V[5]);
-	V[0] =  0x92722c85 + V[0] + W[5] + Ch(V[5], V[6], V[7]) + rotr26(V[5]) + rotr30(V[1]) + Ma(V[2], V[3], V[1]);
+	V[4] += 0x92722c85 + V[0] + W[5] + ch(V[5], V[6], V[7]) + rotr26(V[5]);
+	V[0] =  0x92722c85 + V[0] + W[5] + ch(V[5], V[6], V[7]) + rotr26(V[5]) + rotr30(V[1]) + ma(V[2], V[3], V[1]);
 
-	V[3] += 0xa2bfe8a1 + V[7] + W[6] + Ch(V[4], V[5], V[6]) + rotr26(V[4]);
-	V[7] =  0xa2bfe8a1 + V[7] + W[6] + Ch(V[4], V[5], V[6]) + rotr26(V[4]) + rotr30(V[0]) + Ma(V[1], V[2], V[0]);
+	V[3] += 0xa2bfe8a1 + V[7] + W[6] + ch(V[4], V[5], V[6]) + rotr26(V[4]);
+	V[7] =  0xa2bfe8a1 + V[7] + W[6] + ch(V[4], V[5], V[6]) + rotr26(V[4]) + rotr30(V[0]) + ma(V[1], V[2], V[0]);
 
-	V[2] += 0xa81a664b + V[6] + W[7] + Ch(V[3], V[4], V[5]) + rotr26(V[3]);
-	V[6] =  0xa81a664b + V[6] + W[7] + Ch(V[3], V[4], V[5]) + rotr26(V[3]) + rotr30(V[7]) + Ma(V[0], V[1], V[7]);
+	V[2] += 0xa81a664b + V[6] + W[7] + ch(V[3], V[4], V[5]) + rotr26(V[3]);
+	V[6] =  0xa81a664b + V[6] + W[7] + ch(V[3], V[4], V[5]) + rotr26(V[3]) + rotr30(V[7]) + ma(V[0], V[1], V[7]);
 
-	V[1] += 0xc24b8b70 + V[5] + W[8] + Ch(V[2], V[3], V[4]) + rotr26(V[2]);
-	V[5] =  0xc24b8b70 + V[5] + W[8] + Ch(V[2], V[3], V[4]) + rotr26(V[2]) + rotr30(V[6]) + Ma(V[7], V[0], V[6]);
+	V[1] += 0xc24b8b70 + V[5] + W[8] + ch(V[2], V[3], V[4]) + rotr26(V[2]);
+	V[5] =  0xc24b8b70 + V[5] + W[8] + ch(V[2], V[3], V[4]) + rotr26(V[2]) + rotr30(V[6]) + ma(V[7], V[0], V[6]);
 
-	V[0] += 0xc76c51a3 + V[4] + W[9] + Ch(V[1], V[2], V[3]) + rotr26(V[1]);
-	V[4] =  0xc76c51a3 + V[4] + W[9] + Ch(V[1], V[2], V[3]) + rotr26(V[1]) + rotr30(V[5]) + Ma(V[6], V[7], V[5]);
+	V[0] += 0xc76c51a3 + V[4] + W[9] + ch(V[1], V[2], V[3]) + rotr26(V[1]);
+	V[4] =  0xc76c51a3 + V[4] + W[9] + ch(V[1], V[2], V[3]) + rotr26(V[1]) + rotr30(V[5]) + ma(V[6], V[7], V[5]);
 
-	V[7] += 0xd192e819 + V[3] + W[10] + Ch(V[0], V[1], V[2]) + rotr26(V[0]);
-	V[3] =  0xd192e819 + V[3] + W[10] + Ch(V[0], V[1], V[2]) + rotr26(V[0]) + rotr30(V[4]) + Ma(V[5], V[6], V[4]);
+	V[7] += 0xd192e819 + V[3] + W[10] + ch(V[0], V[1], V[2]) + rotr26(V[0]);
+	V[3] =  0xd192e819 + V[3] + W[10] + ch(V[0], V[1], V[2]) + rotr26(V[0]) + rotr30(V[4]) + ma(V[5], V[6], V[4]);
 
-	V[6] += 0xd6990624 + V[2] + W[11] + Ch(V[7], V[0], V[1]) + rotr26(V[7]);
-	V[2] =  0xd6990624 + V[2] + W[11] + Ch(V[7], V[0], V[1]) + rotr26(V[7]) + rotr30(V[3]) + Ma(V[4], V[5], V[3]);
+	V[6] += 0xd6990624 + V[2] + W[11] + ch(V[7], V[0], V[1]) + rotr26(V[7]);
+	V[2] =  0xd6990624 + V[2] + W[11] + ch(V[7], V[0], V[1]) + rotr26(V[7]) + rotr30(V[3]) + ma(V[4], V[5], V[3]);
 
-	V[5] += 0xf40e3585 + V[1] + W[12] + Ch(V[6], V[7], V[0]) + rotr26(V[6]);
-	V[1] =  0xf40e3585 + V[1] + W[12] + Ch(V[6], V[7], V[0]) + rotr26(V[6]) + rotr30(V[2]) + Ma(V[3], V[4], V[2]);
+	V[5] += 0xf40e3585 + V[1] + W[12] + ch(V[6], V[7], V[0]) + rotr26(V[6]);
+	V[1] =  0xf40e3585 + V[1] + W[12] + ch(V[6], V[7], V[0]) + rotr26(V[6]) + rotr30(V[2]) + ma(V[3], V[4], V[2]);
 
-	V[4] += 0x106aa070 + V[0] + W[13] + Ch(V[5], V[6], V[7]) + rotr26(V[5]);
-	V[0] =  0x106aa070 + V[0] + W[13] + Ch(V[5], V[6], V[7]) + rotr26(V[5]) + rotr30(V[1]) + Ma(V[2], V[3], V[1]);
+	V[4] += 0x106aa070 + V[0] + W[13] + ch(V[5], V[6], V[7]) + rotr26(V[5]);
+	V[0] =  0x106aa070 + V[0] + W[13] + ch(V[5], V[6], V[7]) + rotr26(V[5]) + rotr30(V[1]) + ma(V[2], V[3], V[1]);
 
-	V[3] += 0x19a4c116 + V[7] + W[14] + Ch(V[4], V[5], V[6]) + rotr26(V[4]);
-	V[7] =  0x19a4c116 + V[7] + W[14] + Ch(V[4], V[5], V[6]) + rotr26(V[4]) + rotr30(V[0]) + Ma(V[1], V[2], V[0]);
+	V[3] += 0x19a4c116 + V[7] + W[14] + ch(V[4], V[5], V[6]) + rotr26(V[4]);
+	V[7] =  0x19a4c116 + V[7] + W[14] + ch(V[4], V[5], V[6]) + rotr26(V[4]) + rotr30(V[0]) + ma(V[1], V[2], V[0]);
 
-	V[2] += 0x1e376c08 + V[6] + W[15] + Ch(V[3], V[4], V[5]) + rotr26(V[3]);
-	V[6] =  0x1e376c08 + V[6] + W[15] + Ch(V[3], V[4], V[5]) + rotr26(V[3]) + rotr30(V[7]) + Ma(V[0], V[1], V[7]);
+	V[2] += 0x1e376c08 + V[6] + W[15] + ch(V[3], V[4], V[5]) + rotr26(V[3]);
+	V[6] =  0x1e376c08 + V[6] + W[15] + ch(V[3], V[4], V[5]) + rotr26(V[3]) + rotr30(V[7]) + ma(V[0], V[1], V[7]);
 
 //----------------------------------------------------------------------------------
 
@@ -293,47 +290,47 @@ __kernel
 	W[12] = W[12] +  W[5] + rotr15(W[10]) + rotr25(W[13]);
 	W[13] = W[13] +  W[6] + rotr15(W[11]) + rotr25(W[14]);
 
-	V[1] += 0x2748774c + V[5] + W[0] + Ch(V[2], V[3], V[4]) + rotr26(V[2]);
-	V[5] =  0x2748774c + V[5] + W[0] + Ch(V[2], V[3], V[4]) + rotr26(V[2]) + rotr30(V[6]) + Ma(V[7], V[0], V[6]);
+	V[1] += 0x2748774c + V[5] + W[0] + ch(V[2], V[3], V[4]) + rotr26(V[2]);
+	V[5] =  0x2748774c + V[5] + W[0] + ch(V[2], V[3], V[4]) + rotr26(V[2]) + rotr30(V[6]) + ma(V[7], V[0], V[6]);
 
-	V[0] += 0x34b0bcb5 + V[4] + W[1] + Ch(V[1], V[2], V[3]) + rotr26(V[1]);
-	V[4] =  0x34b0bcb5 + V[4] + W[1] + Ch(V[1], V[2], V[3]) + rotr26(V[1]) + rotr30(V[5]) + Ma(V[6], V[7], V[5]);
+	V[0] += 0x34b0bcb5 + V[4] + W[1] + ch(V[1], V[2], V[3]) + rotr26(V[1]);
+	V[4] =  0x34b0bcb5 + V[4] + W[1] + ch(V[1], V[2], V[3]) + rotr26(V[1]) + rotr30(V[5]) + ma(V[6], V[7], V[5]);
 
-	V[7] += 0x391c0cb3 + V[3] + W[2] + Ch(V[0], V[1], V[2]) + rotr26(V[0]);
-	V[3] =  0x391c0cb3 + V[3] + W[2] + Ch(V[0], V[1], V[2]) + rotr26(V[0]) + rotr30(V[4]) + Ma(V[5], V[6], V[4]);
+	V[7] += 0x391c0cb3 + V[3] + W[2] + ch(V[0], V[1], V[2]) + rotr26(V[0]);
+	V[3] =  0x391c0cb3 + V[3] + W[2] + ch(V[0], V[1], V[2]) + rotr26(V[0]) + rotr30(V[4]) + ma(V[5], V[6], V[4]);
 
-	V[6] += 0x4ed8aa4a + V[2] + W[3] + Ch(V[7], V[0], V[1]) + rotr26(V[7]);
-	V[2] =  0x4ed8aa4a + V[2] + W[3] + Ch(V[7], V[0], V[1]) + rotr26(V[7]) + rotr30(V[3]) + Ma(V[4], V[5], V[3]);
+	V[6] += 0x4ed8aa4a + V[2] + W[3] + ch(V[7], V[0], V[1]) + rotr26(V[7]);
+	V[2] =  0x4ed8aa4a + V[2] + W[3] + ch(V[7], V[0], V[1]) + rotr26(V[7]) + rotr30(V[3]) + ma(V[4], V[5], V[3]);
 
-	V[5] += 0x5b9cca4f + V[1] + W[4] + Ch(V[6], V[7], V[0]) + rotr26(V[6]);
-	V[1] =  0x5b9cca4f + V[1] + W[4] + Ch(V[6], V[7], V[0]) + rotr26(V[6]) + rotr30(V[2]) + Ma(V[3], V[4], V[2]);
+	V[5] += 0x5b9cca4f + V[1] + W[4] + ch(V[6], V[7], V[0]) + rotr26(V[6]);
+	V[1] =  0x5b9cca4f + V[1] + W[4] + ch(V[6], V[7], V[0]) + rotr26(V[6]) + rotr30(V[2]) + ma(V[3], V[4], V[2]);
 
-	V[4] += 0x682e6ff3 + V[0] + W[5] + Ch(V[5], V[6], V[7]) + rotr26(V[5]);
-	V[0] =  0x682e6ff3 + V[0] + W[5] + Ch(V[5], V[6], V[7]) + rotr26(V[5]) + rotr30(V[1]) + Ma(V[2], V[3], V[1]);
+	V[4] += 0x682e6ff3 + V[0] + W[5] + ch(V[5], V[6], V[7]) + rotr26(V[5]);
+	V[0] =  0x682e6ff3 + V[0] + W[5] + ch(V[5], V[6], V[7]) + rotr26(V[5]) + rotr30(V[1]) + ma(V[2], V[3], V[1]);
 
-	V[3] += 0x748f82ee + V[7] + W[6] + Ch(V[4], V[5], V[6]) + rotr26(V[4]);
-	V[7] =  0x748f82ee + V[7] + W[6] + Ch(V[4], V[5], V[6]) + rotr26(V[4]) + rotr30(V[0]) + Ma(V[1], V[2], V[0]);
+	V[3] += 0x748f82ee + V[7] + W[6] + ch(V[4], V[5], V[6]) + rotr26(V[4]);
+	V[7] =  0x748f82ee + V[7] + W[6] + ch(V[4], V[5], V[6]) + rotr26(V[4]) + rotr30(V[0]) + ma(V[1], V[2], V[0]);
 
-	V[2] += 0x78a5636f + V[6] + W[7] + Ch(V[3], V[4], V[5]) + rotr26(V[3]);
-	V[6] =  0x78a5636f + V[6] + W[7] + Ch(V[3], V[4], V[5]) + rotr26(V[3]) + rotr30(V[7]) + Ma(V[0], V[1], V[7]);
+	V[2] += 0x78a5636f + V[6] + W[7] + ch(V[3], V[4], V[5]) + rotr26(V[3]);
+	V[6] =  0x78a5636f + V[6] + W[7] + ch(V[3], V[4], V[5]) + rotr26(V[3]) + rotr30(V[7]) + ma(V[0], V[1], V[7]);
 
-	V[1] += 0x84c87814 + V[5] + W[8] + Ch(V[2], V[3], V[4]) + rotr26(V[2]);
-	V[5] =  0x84c87814 + V[5] + W[8] + Ch(V[2], V[3], V[4]) + rotr26(V[2]) + rotr30(V[6]) + Ma(V[7], V[0], V[6]);
+	V[1] += 0x84c87814 + V[5] + W[8] + ch(V[2], V[3], V[4]) + rotr26(V[2]);
+	V[5] =  0x84c87814 + V[5] + W[8] + ch(V[2], V[3], V[4]) + rotr26(V[2]) + rotr30(V[6]) + ma(V[7], V[0], V[6]);
 
-	V[0] += 0x8cc70208 + V[4] + W[9] + Ch(V[1], V[2], V[3]) + rotr26(V[1]);
-	V[4] =  0x8cc70208 + V[4] + W[9] + Ch(V[1], V[2], V[3]) + rotr26(V[1]) + rotr30(V[5]) + Ma(V[6], V[7], V[5]);
+	V[0] += 0x8cc70208 + V[4] + W[9] + ch(V[1], V[2], V[3]) + rotr26(V[1]);
+	V[4] =  0x8cc70208 + V[4] + W[9] + ch(V[1], V[2], V[3]) + rotr26(V[1]) + rotr30(V[5]) + ma(V[6], V[7], V[5]);
 
-	V[7] += 0x90befffa + V[3] + W[10] + Ch(V[0], V[1], V[2]) + rotr26(V[0]);
-	V[3] =  0x90befffa + V[3] + W[10] + Ch(V[0], V[1], V[2]) + rotr26(V[0]) + rotr30(V[4]) + Ma(V[5], V[6], V[4]);
+	V[7] += 0x90befffa + V[3] + W[10] + ch(V[0], V[1], V[2]) + rotr26(V[0]);
+	V[3] =  0x90befffa + V[3] + W[10] + ch(V[0], V[1], V[2]) + rotr26(V[0]) + rotr30(V[4]) + ma(V[5], V[6], V[4]);
 
-	V[6] += 0xa4506ceb + V[2] + W[11] + Ch(V[7], V[0], V[1]) + rotr26(V[7]);
-	V[2] =  0xa4506ceb + V[2] + W[11] + Ch(V[7], V[0], V[1]) + rotr26(V[7]) + rotr30(V[3]) + Ma(V[4], V[5], V[3]);
+	V[6] += 0xa4506ceb + V[2] + W[11] + ch(V[7], V[0], V[1]) + rotr26(V[7]);
+	V[2] =  0xa4506ceb + V[2] + W[11] + ch(V[7], V[0], V[1]) + rotr26(V[7]) + rotr30(V[3]) + ma(V[4], V[5], V[3]);
 
-	V[5] += 0xbef9a3f7 + V[1] + W[12] + Ch(V[6], V[7], V[0]) + rotr26(V[6]);
-	V[1] =  0xbef9a3f7 + V[1] + W[12] + Ch(V[6], V[7], V[0]) + rotr26(V[6]) + rotr30(V[2]) + Ma(V[3], V[4], V[2]);
+	V[5] += 0xbef9a3f7 + V[1] + W[12] + ch(V[6], V[7], V[0]) + rotr26(V[6]);
+	V[1] =  0xbef9a3f7 + V[1] + W[12] + ch(V[6], V[7], V[0]) + rotr26(V[6]) + rotr30(V[2]) + ma(V[3], V[4], V[2]);
 
-	V[4] += 0xc67178f2 + V[0] + W[13] + Ch(V[5], V[6], V[7]) + rotr26(V[5]);
-	V[0] =  0xc67178f2 + V[0] + W[13] + Ch(V[5], V[6], V[7]) + rotr26(V[5]) + rotr30(V[1]) + Ma(V[2], V[3], V[1]);
+	V[4] += 0xc67178f2 + V[0] + W[13] + ch(V[5], V[6], V[7]) + rotr26(V[5]);
+	V[0] =  0xc67178f2 + V[0] + W[13] + ch(V[5], V[6], V[7]) + rotr26(V[5]) + rotr30(V[1]) + ma(V[2], V[3], V[1]);
 
 //----------------------------------------------------------------------------------
 
@@ -351,50 +348,50 @@ __kernel
 	// 0xfc08884d + W[0]
 	u state0BaddV0 = state0B + V[0];
 
-	V[2] = 0x3c6ef372 + (V[6] = 0x90bb1e3c + W[1] + Ch(state0AaddV0, 0x510e527fU, 0x9b05688cU) + rotr26(state0AaddV0));
-	V[6] += rotr30(state0BaddV0) + Ma(0x6a09e667U, 0xbb67ae85U, state0BaddV0);
+	V[2] = 0x3c6ef372 + (V[6] = 0x90bb1e3c + W[1] + ch(state0AaddV0, 0x510e527fU, 0x9b05688cU) + rotr26(state0AaddV0));
+	V[6] += rotr30(state0BaddV0) + ma(0x6a09e667U, 0xbb67ae85U, state0BaddV0);
 		
-	V[1] = 0xbb67ae85 + (V[5] = 0x50c6645b + W[2] + Ch(V[2], state0AaddV0, 0x510e527fU) + rotr26(V[2]));
-	V[5] += rotr30(V[6]) + Ma(state0BaddV0, 0x6a09e667U, V[6]);
+	V[1] = 0xbb67ae85 + (V[5] = 0x50c6645b + W[2] + ch(V[2], state0AaddV0, 0x510e527fU) + rotr26(V[2]));
+	V[5] += rotr30(V[6]) + ma(state0BaddV0, 0x6a09e667U, V[6]);
 
-	V[0] = 0x6a09e667 + (V[4] = 0x3ac42e24 + W[3] + Ch(V[1], V[2], state0AaddV0) + rotr26(V[1]));
-	V[4] += rotr30(V[5]) + Ma(V[6], state0BaddV0, V[5]);
+	V[0] = 0x6a09e667 + (V[4] = 0x3ac42e24 + W[3] + ch(V[1], V[2], state0AaddV0) + rotr26(V[1]));
+	V[4] += rotr30(V[5]) + ma(V[6], state0BaddV0, V[5]);
 
-	V[7] = (state0BaddV0) + (V[3] = 0x3956c25b + state0AaddV0 + W[4] + Ch(V[0], V[1], V[2]) + rotr26(V[0]));
-	V[3] += rotr30(V[4]) + Ma(V[5], V[6], V[4]);
+	V[7] = state0BaddV0 + (V[3] = 0x3956c25b + state0AaddV0 + W[4] + ch(V[0], V[1], V[2]) + rotr26(V[0]));
+	V[3] += rotr30(V[4]) + ma(V[5], V[6], V[4]);
 
-	V[6] += 0x59f111f1 + V[2] + W[5] + Ch(V[7], V[0], V[1]) + rotr26(V[7]);
-	V[2] =  0x59f111f1 + V[2] + W[5] + Ch(V[7], V[0], V[1]) + rotr26(V[7]) + rotr30(V[3]) + Ma(V[4], V[5], V[3]);
+	V[6] += 0x59f111f1 + V[2] + W[5] + ch(V[7], V[0], V[1]) + rotr26(V[7]);
+	V[2] =  0x59f111f1 + V[2] + W[5] + ch(V[7], V[0], V[1]) + rotr26(V[7]) + rotr30(V[3]) + ma(V[4], V[5], V[3]);
 
-	V[5] += 0x923f82a4 + V[1] + W[6] + Ch(V[6], V[7], V[0]) + rotr26(V[6]);
-	V[1] =  0x923f82a4 + V[1] + W[6] + Ch(V[6], V[7], V[0]) + rotr26(V[6]) + rotr30(V[2]) + Ma(V[3], V[4], V[2]);
+	V[5] += 0x923f82a4 + V[1] + W[6] + ch(V[6], V[7], V[0]) + rotr26(V[6]);
+	V[1] =  0x923f82a4 + V[1] + W[6] + ch(V[6], V[7], V[0]) + rotr26(V[6]) + rotr30(V[2]) + ma(V[3], V[4], V[2]);
 
-	V[4] += 0xab1c5ed5 + V[0] + W[7] + Ch(V[5], V[6], V[7]) + rotr26(V[5]);
-	V[0] =  0xab1c5ed5 + V[0] + W[7] + Ch(V[5], V[6], V[7]) + rotr26(V[5]) + rotr30(V[1]) + Ma(V[2], V[3], V[1]);
+	V[4] += 0xab1c5ed5 + V[0] + W[7] + ch(V[5], V[6], V[7]) + rotr26(V[5]);
+	V[0] =  0xab1c5ed5 + V[0] + W[7] + ch(V[5], V[6], V[7]) + rotr26(V[5]) + rotr30(V[1]) + ma(V[2], V[3], V[1]);
 
-	V[3] += 0x5807aa98 + V[7] + Ch(V[4], V[5], V[6]) + rotr26(V[4]);
-	V[7] =  0x5807aa98 + V[7] + Ch(V[4], V[5], V[6]) + rotr26(V[4]) + rotr30(V[0]) + Ma(V[1], V[2], V[0]);
+	V[3] += 0x5807aa98 + V[7] + ch(V[4], V[5], V[6]) + rotr26(V[4]);
+	V[7] =  0x5807aa98 + V[7] + ch(V[4], V[5], V[6]) + rotr26(V[4]) + rotr30(V[0]) + ma(V[1], V[2], V[0]);
 
-	V[2] += 0x12835b01 + V[6] + Ch(V[3], V[4], V[5]) + rotr26(V[3]);
-	V[6] =  0x12835b01 + V[6] + Ch(V[3], V[4], V[5]) + rotr26(V[3]) + rotr30(V[7]) + Ma(V[0], V[1], V[7]);
+	V[2] += 0x12835b01 + V[6] + ch(V[3], V[4], V[5]) + rotr26(V[3]);
+	V[6] =  0x12835b01 + V[6] + ch(V[3], V[4], V[5]) + rotr26(V[3]) + rotr30(V[7]) + ma(V[0], V[1], V[7]);
 
-	V[1] += 0x243185be + V[5] + Ch(V[2], V[3], V[4]) + rotr26(V[2]);
-	V[5] =  0x243185be + V[5] + Ch(V[2], V[3], V[4]) + rotr26(V[2]) + rotr30(V[6]) + Ma(V[7], V[0], V[6]);
+	V[1] += 0x243185be + V[5] + ch(V[2], V[3], V[4]) + rotr26(V[2]);
+	V[5] =  0x243185be + V[5] + ch(V[2], V[3], V[4]) + rotr26(V[2]) + rotr30(V[6]) + ma(V[7], V[0], V[6]);
 
-	V[0] += 0x550c7dc3 + V[4] + Ch(V[1], V[2], V[3]) + rotr26(V[1]);
-	V[4] =  0x550c7dc3 + V[4] + Ch(V[1], V[2], V[3]) + rotr26(V[1]) + rotr30(V[5]) + Ma(V[6], V[7], V[5]);
+	V[0] += 0x550c7dc3 + V[4] + ch(V[1], V[2], V[3]) + rotr26(V[1]);
+	V[4] =  0x550c7dc3 + V[4] + ch(V[1], V[2], V[3]) + rotr26(V[1]) + rotr30(V[5]) + ma(V[6], V[7], V[5]);
 
-	V[7] += 0x72be5d74 + V[3] + Ch(V[0], V[1], V[2]) + rotr26(V[0]);
-	V[3] =  0x72be5d74 + V[3] + Ch(V[0], V[1], V[2]) + rotr26(V[0]) + rotr30(V[4]) + Ma(V[5], V[6], V[4]);
+	V[7] += 0x72be5d74 + V[3] + ch(V[0], V[1], V[2]) + rotr26(V[0]);
+	V[3] =  0x72be5d74 + V[3] + ch(V[0], V[1], V[2]) + rotr26(V[0]) + rotr30(V[4]) + ma(V[5], V[6], V[4]);
 
-	V[6] += 0x80deb1fe + V[2] + Ch(V[7], V[0], V[1]) + rotr26(V[7]);
-	V[2] =  0x80deb1fe + V[2] + Ch(V[7], V[0], V[1]) + rotr26(V[7]) + rotr30(V[3]) + Ma(V[4], V[5], V[3]);
+	V[6] += 0x80deb1fe + V[2] + ch(V[7], V[0], V[1]) + rotr26(V[7]);
+	V[2] =  0x80deb1fe + V[2] + ch(V[7], V[0], V[1]) + rotr26(V[7]) + rotr30(V[3]) + ma(V[4], V[5], V[3]);
 
-	V[5] += 0x9bdc06a7 + V[1] + Ch(V[6], V[7], V[0]) + rotr26(V[6]);
-	V[1] =  0x9bdc06a7 + V[1] + Ch(V[6], V[7], V[0]) + rotr26(V[6]) + rotr30(V[2]) + Ma(V[3], V[4], V[2]);
+	V[5] += 0x9bdc06a7 + V[1] + ch(V[6], V[7], V[0]) + rotr26(V[6]);
+	V[1] =  0x9bdc06a7 + V[1] + ch(V[6], V[7], V[0]) + rotr26(V[6]) + rotr30(V[2]) + ma(V[3], V[4], V[2]);
 
-	V[4] += 0xc19bf274 + V[0] + Ch(V[5], V[6], V[7]) + rotr26(V[5]);
-	V[0] =  0xc19bf274 + V[0] + Ch(V[5], V[6], V[7]) + rotr26(V[5]) + rotr30(V[1]) + Ma(V[2], V[3], V[1]);
+	V[4] += 0xc19bf274 + V[0] + ch(V[5], V[6], V[7]) + rotr26(V[5]);
+	V[0] =  0xc19bf274 + V[0] + ch(V[5], V[6], V[7]) + rotr26(V[5]) + rotr30(V[1]) + ma(V[2], V[3], V[1]);
 
 //----------------------------------------------------------------------------------
 
@@ -415,53 +412,53 @@ __kernel
 	W[14] = W[7] + 0x00400022 + rotr15(W[12]);
 	W[15] = W[8] + 0x00000100 + rotr15(W[13]) + rotr25(W[0]);
 
-	V[3] += 0xe49b69c1 + V[7] + W[0] + Ch(V[4], V[5], V[6]) + rotr26(V[4]);
-	V[7] =  0xe49b69c1 + V[7] + W[0] + Ch(V[4], V[5], V[6]) + rotr26(V[4]) + rotr30(V[0]) + Ma(V[1], V[2], V[0]);
+	V[3] += 0xe49b69c1 + V[7] + W[0] + ch(V[4], V[5], V[6]) + rotr26(V[4]);
+	V[7] =  0xe49b69c1 + V[7] + W[0] + ch(V[4], V[5], V[6]) + rotr26(V[4]) + rotr30(V[0]) + ma(V[1], V[2], V[0]);
 
-	V[2] += 0xefbe4786 + V[6] + W[1] + Ch(V[3], V[4], V[5]) + rotr26(V[3]);
-	V[6] =  0xefbe4786 + V[6] + W[1] + Ch(V[3], V[4], V[5]) + rotr26(V[3]) + rotr30(V[7]) + Ma(V[0], V[1], V[7]);
+	V[2] += 0xefbe4786 + V[6] + W[1] + ch(V[3], V[4], V[5]) + rotr26(V[3]);
+	V[6] =  0xefbe4786 + V[6] + W[1] + ch(V[3], V[4], V[5]) + rotr26(V[3]) + rotr30(V[7]) + ma(V[0], V[1], V[7]);
 
-	V[1] += 0x0fc19dc6 + V[5] + W[2] + Ch(V[2], V[3], V[4]) + rotr26(V[2]);
-	V[5] =  0x0fc19dc6 + V[5] + W[2] + Ch(V[2], V[3], V[4]) + rotr26(V[2]) + rotr30(V[6]) + Ma(V[7], V[0], V[6]);
+	V[1] += 0x0fc19dc6 + V[5] + W[2] + ch(V[2], V[3], V[4]) + rotr26(V[2]);
+	V[5] =  0x0fc19dc6 + V[5] + W[2] + ch(V[2], V[3], V[4]) + rotr26(V[2]) + rotr30(V[6]) + ma(V[7], V[0], V[6]);
 
-	V[0] += 0x240ca1cc + V[4] + W[3] + Ch(V[1], V[2], V[3]) + rotr26(V[1]);
-	V[4] =  0x240ca1cc + V[4] + W[3] + Ch(V[1], V[2], V[3]) + rotr26(V[1]) + rotr30(V[5]) + Ma(V[6], V[7], V[5]);
+	V[0] += 0x240ca1cc + V[4] + W[3] + ch(V[1], V[2], V[3]) + rotr26(V[1]);
+	V[4] =  0x240ca1cc + V[4] + W[3] + ch(V[1], V[2], V[3]) + rotr26(V[1]) + rotr30(V[5]) + ma(V[6], V[7], V[5]);
 
-	V[7] += 0x2de92c6f + V[3] + W[4] + Ch(V[0], V[1], V[2]) + rotr26(V[0]);
-	V[3] =  0x2de92c6f + V[3] + W[4] + Ch(V[0], V[1], V[2]) + rotr26(V[0]) + rotr30(V[4]) + Ma(V[5], V[6], V[4]);
+	V[7] += 0x2de92c6f + V[3] + W[4] + ch(V[0], V[1], V[2]) + rotr26(V[0]);
+	V[3] =  0x2de92c6f + V[3] + W[4] + ch(V[0], V[1], V[2]) + rotr26(V[0]) + rotr30(V[4]) + ma(V[5], V[6], V[4]);
 
-	V[6] += 0x4a7484aa + V[2] + W[5] + Ch(V[7], V[0], V[1]) + rotr26(V[7]);
-	V[2] =  0x4a7484aa + V[2] + W[5] + Ch(V[7], V[0], V[1]) + rotr26(V[7]) + rotr30(V[3]) + Ma(V[4], V[5], V[3]);
+	V[6] += 0x4a7484aa + V[2] + W[5] + ch(V[7], V[0], V[1]) + rotr26(V[7]);
+	V[2] =  0x4a7484aa + V[2] + W[5] + ch(V[7], V[0], V[1]) + rotr26(V[7]) + rotr30(V[3]) + ma(V[4], V[5], V[3]);
 
-	V[5] += 0x5cb0a9dc + V[1] + W[6] + Ch(V[6], V[7], V[0]) + rotr26(V[6]);
-	V[1] =  0x5cb0a9dc + V[1] + W[6] + Ch(V[6], V[7], V[0]) + rotr26(V[6]) + rotr30(V[2]) + Ma(V[3], V[4], V[2]);
+	V[5] += 0x5cb0a9dc + V[1] + W[6] + ch(V[6], V[7], V[0]) + rotr26(V[6]);
+	V[1] =  0x5cb0a9dc + V[1] + W[6] + ch(V[6], V[7], V[0]) + rotr26(V[6]) + rotr30(V[2]) + ma(V[3], V[4], V[2]);
 
-	V[4] += 0x76f988da + V[0] + W[7] + Ch(V[5], V[6], V[7]) + rotr26(V[5]);
-	V[0] =  0x76f988da + V[0] + W[7] + Ch(V[5], V[6], V[7]) + rotr26(V[5]) + rotr30(V[1]) + Ma(V[2], V[3], V[1]);
+	V[4] += 0x76f988da + V[0] + W[7] + ch(V[5], V[6], V[7]) + rotr26(V[5]);
+	V[0] =  0x76f988da + V[0] + W[7] + ch(V[5], V[6], V[7]) + rotr26(V[5]) + rotr30(V[1]) + ma(V[2], V[3], V[1]);
 
-	V[3] += 0x983e5152 + V[7] + W[8] + Ch(V[4], V[5], V[6]) + rotr26(V[4]);
-	V[7] =  0x983e5152 + V[7] + W[8] + Ch(V[4], V[5], V[6]) + rotr26(V[4]) + rotr30(V[0]) + Ma(V[1], V[2], V[0]);
+	V[3] += 0x983e5152 + V[7] + W[8] + ch(V[4], V[5], V[6]) + rotr26(V[4]);
+	V[7] =  0x983e5152 + V[7] + W[8] + ch(V[4], V[5], V[6]) + rotr26(V[4]) + rotr30(V[0]) + ma(V[1], V[2], V[0]);
 
-	V[2] += 0xa831c66d + V[6] + W[9] + Ch(V[3], V[4], V[5]) + rotr26(V[3]);
-	V[6] =  0xa831c66d + V[6] + W[9] + Ch(V[3], V[4], V[5]) + rotr26(V[3]) + rotr30(V[7]) + Ma(V[0], V[1], V[7]);
+	V[2] += 0xa831c66d + V[6] + W[9] + ch(V[3], V[4], V[5]) + rotr26(V[3]);
+	V[6] =  0xa831c66d + V[6] + W[9] + ch(V[3], V[4], V[5]) + rotr26(V[3]) + rotr30(V[7]) + ma(V[0], V[1], V[7]);
 
-	V[1] += 0xb00327c8 + V[5] + W[10] + Ch(V[2], V[3], V[4]) + rotr26(V[2]);
-	V[5] =  0xb00327c8 + V[5] + W[10] + Ch(V[2], V[3], V[4]) + rotr26(V[2]) + rotr30(V[6]) + Ma(V[7], V[0], V[6]);
+	V[1] += 0xb00327c8 + V[5] + W[10] + ch(V[2], V[3], V[4]) + rotr26(V[2]);
+	V[5] =  0xb00327c8 + V[5] + W[10] + ch(V[2], V[3], V[4]) + rotr26(V[2]) + rotr30(V[6]) + ma(V[7], V[0], V[6]);
 
-	V[0] += 0xbf597fc7 + V[4] + W[11] + Ch(V[1], V[2], V[3]) + rotr26(V[1]);
-	V[4] =  0xbf597fc7 + V[4] + W[11] + Ch(V[1], V[2], V[3]) + rotr26(V[1]) + rotr30(V[5]) + Ma(V[6], V[7], V[5]);
+	V[0] += 0xbf597fc7 + V[4] + W[11] + ch(V[1], V[2], V[3]) + rotr26(V[1]);
+	V[4] =  0xbf597fc7 + V[4] + W[11] + ch(V[1], V[2], V[3]) + rotr26(V[1]) + rotr30(V[5]) + ma(V[6], V[7], V[5]);
 
-	V[7] += 0xc6e00bf3 + V[3] + W[12] + Ch(V[0], V[1], V[2]) + rotr26(V[0]);
-	V[3] =  0xc6e00bf3 + V[3] + W[12] + Ch(V[0], V[1], V[2]) + rotr26(V[0]) + rotr30(V[4]) + Ma(V[5], V[6], V[4]);
+	V[7] += 0xc6e00bf3 + V[3] + W[12] + ch(V[0], V[1], V[2]) + rotr26(V[0]);
+	V[3] =  0xc6e00bf3 + V[3] + W[12] + ch(V[0], V[1], V[2]) + rotr26(V[0]) + rotr30(V[4]) + ma(V[5], V[6], V[4]);
 
-	V[6] += 0xd5a79147 + V[2] + W[13] + Ch(V[7], V[0], V[1]) + rotr26(V[7]);
-	V[2] =  0xd5a79147 + V[2] + W[13] + Ch(V[7], V[0], V[1]) + rotr26(V[7]) + rotr30(V[3]) + Ma(V[4], V[5], V[3]);
+	V[6] += 0xd5a79147 + V[2] + W[13] + ch(V[7], V[0], V[1]) + rotr26(V[7]);
+	V[2] =  0xd5a79147 + V[2] + W[13] + ch(V[7], V[0], V[1]) + rotr26(V[7]) + rotr30(V[3]) + ma(V[4], V[5], V[3]);
 
-	V[5] += 0x06ca6351 + V[1] + W[14] + Ch(V[6], V[7], V[0]) + rotr26(V[6]);
-	V[1] =  0x06ca6351 + V[1] + W[14] + Ch(V[6], V[7], V[0]) + rotr26(V[6]) + rotr30(V[2]) + Ma(V[3], V[4], V[2]);
+	V[5] += 0x06ca6351 + V[1] + W[14] + ch(V[6], V[7], V[0]) + rotr26(V[6]);
+	V[1] =  0x06ca6351 + V[1] + W[14] + ch(V[6], V[7], V[0]) + rotr26(V[6]) + rotr30(V[2]) + ma(V[3], V[4], V[2]);
 
-	V[4] += 0x14292967 + V[0] + W[15] + Ch(V[5], V[6], V[7]) + rotr26(V[5]);
-	V[0] =  0x14292967 + V[0] + W[15] + Ch(V[5], V[6], V[7]) + rotr26(V[5]) + rotr30(V[1]) + Ma(V[2], V[3], V[1]);
+	V[4] += 0x14292967 + V[0] + W[15] + ch(V[5], V[6], V[7]) + rotr26(V[5]);
+	V[0] =  0x14292967 + V[0] + W[15] + ch(V[5], V[6], V[7]) + rotr26(V[5]) + rotr30(V[1]) + ma(V[2], V[3], V[1]);
 
 //----------------------------------------------------------------------------------
 
@@ -482,53 +479,53 @@ __kernel
 	W[14] = W[14] +  W[7] + rotr15(W[12]) + rotr25(W[15]);
 	W[15] = W[15] +  W[8] + rotr15(W[13]) + rotr25( W[0]);
 
-	V[3] += 0x27b70a85 + V[7] + W[0] + Ch(V[4], V[5], V[6]) + rotr26(V[4]);
-	V[7] =  0x27b70a85 + V[7] + W[0] + Ch(V[4], V[5], V[6]) + rotr26(V[4]) + rotr30(V[0]) + Ma(V[1], V[2], V[0]);
+	V[3] += 0x27b70a85 + V[7] + W[0] + ch(V[4], V[5], V[6]) + rotr26(V[4]);
+	V[7] =  0x27b70a85 + V[7] + W[0] + ch(V[4], V[5], V[6]) + rotr26(V[4]) + rotr30(V[0]) + ma(V[1], V[2], V[0]);
 
-	V[2] += 0x2e1b2138 + V[6] + W[1] + Ch(V[3], V[4], V[5]) + rotr26(V[3]);
-	V[6] =  0x2e1b2138 + V[6] + W[1] + Ch(V[3], V[4], V[5]) + rotr26(V[3]) + rotr30(V[7]) + Ma(V[0], V[1], V[7]);
+	V[2] += 0x2e1b2138 + V[6] + W[1] + ch(V[3], V[4], V[5]) + rotr26(V[3]);
+	V[6] =  0x2e1b2138 + V[6] + W[1] + ch(V[3], V[4], V[5]) + rotr26(V[3]) + rotr30(V[7]) + ma(V[0], V[1], V[7]);
 
-	V[1] += 0x4d2c6dfc + V[5] + W[2] + Ch(V[2], V[3], V[4]) + rotr26(V[2]);
-	V[5] =  0x4d2c6dfc + V[5] + W[2] + Ch(V[2], V[3], V[4]) + rotr26(V[2]) + rotr30(V[6]) + Ma(V[7], V[0], V[6]);
+	V[1] += 0x4d2c6dfc + V[5] + W[2] + ch(V[2], V[3], V[4]) + rotr26(V[2]);
+	V[5] =  0x4d2c6dfc + V[5] + W[2] + ch(V[2], V[3], V[4]) + rotr26(V[2]) + rotr30(V[6]) + ma(V[7], V[0], V[6]);
 
-	V[0] += 0x53380d13 + V[4] + W[3] + Ch(V[1], V[2], V[3]) + rotr26(V[1]);
-	V[4] =  0x53380d13 + V[4] + W[3] + Ch(V[1], V[2], V[3]) + rotr26(V[1]) + rotr30(V[5]) + Ma(V[6], V[7], V[5]);
+	V[0] += 0x53380d13 + V[4] + W[3] + ch(V[1], V[2], V[3]) + rotr26(V[1]);
+	V[4] =  0x53380d13 + V[4] + W[3] + ch(V[1], V[2], V[3]) + rotr26(V[1]) + rotr30(V[5]) + ma(V[6], V[7], V[5]);
 
-	V[7] += 0x650a7354 + V[3] + W[4] + Ch(V[0], V[1], V[2]) + rotr26(V[0]);
-	V[3] =  0x650a7354 + V[3] + W[4] + Ch(V[0], V[1], V[2]) + rotr26(V[0]) + rotr30(V[4]) + Ma(V[5], V[6], V[4]);
+	V[7] += 0x650a7354 + V[3] + W[4] + ch(V[0], V[1], V[2]) + rotr26(V[0]);
+	V[3] =  0x650a7354 + V[3] + W[4] + ch(V[0], V[1], V[2]) + rotr26(V[0]) + rotr30(V[4]) + ma(V[5], V[6], V[4]);
 
-	V[6] += 0x766a0abb + V[2] + W[5] + Ch(V[7], V[0], V[1]) + rotr26(V[7]);
-	V[2] =  0x766a0abb + V[2] + W[5] + Ch(V[7], V[0], V[1]) + rotr26(V[7]) + rotr30(V[3]) + Ma(V[4], V[5], V[3]);
+	V[6] += 0x766a0abb + V[2] + W[5] + ch(V[7], V[0], V[1]) + rotr26(V[7]);
+	V[2] =  0x766a0abb + V[2] + W[5] + ch(V[7], V[0], V[1]) + rotr26(V[7]) + rotr30(V[3]) + ma(V[4], V[5], V[3]);
 
-	V[5] += 0x81c2c92e + V[1] + W[6] + Ch(V[6], V[7], V[0]) + rotr26(V[6]);
-	V[1] =  0x81c2c92e + V[1] + W[6] + Ch(V[6], V[7], V[0]) + rotr26(V[6]) + rotr30(V[2]) + Ma(V[3], V[4], V[2]);
+	V[5] += 0x81c2c92e + V[1] + W[6] + ch(V[6], V[7], V[0]) + rotr26(V[6]);
+	V[1] =  0x81c2c92e + V[1] + W[6] + ch(V[6], V[7], V[0]) + rotr26(V[6]) + rotr30(V[2]) + ma(V[3], V[4], V[2]);
 
-	V[4] += 0x92722c85 + V[0] + W[7] + Ch(V[5], V[6], V[7]) + rotr26(V[5]);
-	V[0] =  0x92722c85 + V[0] + W[7] + Ch(V[5], V[6], V[7]) + rotr26(V[5]) + rotr30(V[1]) + Ma(V[2], V[3], V[1]);
+	V[4] += 0x92722c85 + V[0] + W[7] + ch(V[5], V[6], V[7]) + rotr26(V[5]);
+	V[0] =  0x92722c85 + V[0] + W[7] + ch(V[5], V[6], V[7]) + rotr26(V[5]) + rotr30(V[1]) + ma(V[2], V[3], V[1]);
 
-	V[3] += 0xa2bfe8a1 + V[7] + W[8] + Ch(V[4], V[5], V[6]) + rotr26(V[4]);
-	V[7] =  0xa2bfe8a1 + V[7] + W[8] + Ch(V[4], V[5], V[6]) + rotr26(V[4]) + rotr30(V[0]) + Ma(V[1], V[2], V[0]);
+	V[3] += 0xa2bfe8a1 + V[7] + W[8] + ch(V[4], V[5], V[6]) + rotr26(V[4]);
+	V[7] =  0xa2bfe8a1 + V[7] + W[8] + ch(V[4], V[5], V[6]) + rotr26(V[4]) + rotr30(V[0]) + ma(V[1], V[2], V[0]);
 
-	V[2] += 0xa81a664b + V[6] + W[9] + Ch(V[3], V[4], V[5]) + rotr26(V[3]);
-	V[6] =  0xa81a664b + V[6] + W[9] + Ch(V[3], V[4], V[5]) + rotr26(V[3]) + rotr30(V[7]) + Ma(V[0], V[1], V[7]);
+	V[2] += 0xa81a664b + V[6] + W[9] + ch(V[3], V[4], V[5]) + rotr26(V[3]);
+	V[6] =  0xa81a664b + V[6] + W[9] + ch(V[3], V[4], V[5]) + rotr26(V[3]) + rotr30(V[7]) + ma(V[0], V[1], V[7]);
 
-	V[1] += 0xc24b8b70 + V[5] + W[10] + Ch(V[2], V[3], V[4]) + rotr26(V[2]);
-	V[5] =  0xc24b8b70 + V[5] + W[10] + Ch(V[2], V[3], V[4]) + rotr26(V[2]) + rotr30(V[6]) + Ma(V[7], V[0], V[6]);
+	V[1] += 0xc24b8b70 + V[5] + W[10] + ch(V[2], V[3], V[4]) + rotr26(V[2]);
+	V[5] =  0xc24b8b70 + V[5] + W[10] + ch(V[2], V[3], V[4]) + rotr26(V[2]) + rotr30(V[6]) + ma(V[7], V[0], V[6]);
 
-	V[0] += 0xc76c51a3 + V[4] + W[11] + Ch(V[1], V[2], V[3]) + rotr26(V[1]);
-	V[4] =  0xc76c51a3 + V[4] + W[11] + Ch(V[1], V[2], V[3]) + rotr26(V[1]) + rotr30(V[5]) + Ma(V[6], V[7], V[5]);
+	V[0] += 0xc76c51a3 + V[4] + W[11] + ch(V[1], V[2], V[3]) + rotr26(V[1]);
+	V[4] =  0xc76c51a3 + V[4] + W[11] + ch(V[1], V[2], V[3]) + rotr26(V[1]) + rotr30(V[5]) + ma(V[6], V[7], V[5]);
 
-	V[7] += 0xd192e819 + V[3] + W[12] + Ch(V[0], V[1], V[2]) + rotr26(V[0]);
-	V[3] =  0xd192e819 + V[3] + W[12] + Ch(V[0], V[1], V[2]) + rotr26(V[0]) + rotr30(V[4]) + Ma(V[5], V[6], V[4]);
+	V[7] += 0xd192e819 + V[3] + W[12] + ch(V[0], V[1], V[2]) + rotr26(V[0]);
+	V[3] =  0xd192e819 + V[3] + W[12] + ch(V[0], V[1], V[2]) + rotr26(V[0]) + rotr30(V[4]) + ma(V[5], V[6], V[4]);
 
-	V[6] += 0xd6990624 + V[2] + W[13] + Ch(V[7], V[0], V[1]) + rotr26(V[7]);
-	V[2] =  0xd6990624 + V[2] + W[13] + Ch(V[7], V[0], V[1]) + rotr26(V[7]) + rotr30(V[3]) + Ma(V[4], V[5], V[3]);
+	V[6] += 0xd6990624 + V[2] + W[13] + ch(V[7], V[0], V[1]) + rotr26(V[7]);
+	V[2] =  0xd6990624 + V[2] + W[13] + ch(V[7], V[0], V[1]) + rotr26(V[7]) + rotr30(V[3]) + ma(V[4], V[5], V[3]);
 
-	V[5] += 0xf40e3585 + V[1] + W[14] + Ch(V[6], V[7], V[0]) + rotr26(V[6]);
-	V[1] =  0xf40e3585 + V[1] + W[14] + Ch(V[6], V[7], V[0]) + rotr26(V[6]) + rotr30(V[2]) + Ma(V[3], V[4], V[2]);
+	V[5] += 0xf40e3585 + V[1] + W[14] + ch(V[6], V[7], V[0]) + rotr26(V[6]);
+	V[1] =  0xf40e3585 + V[1] + W[14] + ch(V[6], V[7], V[0]) + rotr26(V[6]) + rotr30(V[2]) + ma(V[3], V[4], V[2]);
 
-	V[4] += 0x106aa070 + V[0] + W[15] + Ch(V[5], V[6], V[7]) + rotr26(V[5]);
-	V[0] =  0x106aa070 + V[0] + W[15] + Ch(V[5], V[6], V[7]) + rotr26(V[5]) + rotr30(V[1]) + Ma(V[2], V[3], V[1]);
+	V[4] += 0x106aa070 + V[0] + W[15] + ch(V[5], V[6], V[7]) + rotr26(V[5]);
+	V[0] =  0x106aa070 + V[0] + W[15] + ch(V[5], V[6], V[7]) + rotr26(V[5]) + rotr30(V[1]) + ma(V[2], V[3], V[1]);
 
 //----------------------------------------------------------------------------------
 
@@ -546,40 +543,40 @@ __kernel
 	W[11] = W[11] +  W[4] + rotr15( W[9]) + rotr25(W[12]);
 	W[12] = W[12] +  W[5] + rotr15(W[10]) + rotr25(W[13]);
 
-	V[3] += 0x19a4c116 + V[7] + W[0] + Ch(V[4], V[5], V[6]) + rotr26(V[4]);
-	V[7] =  0x19a4c116 + V[7] + W[0] + Ch(V[4], V[5], V[6]) + rotr26(V[4]) + rotr30(V[0]) + Ma(V[1], V[2], V[0]);
+	V[3] += 0x19a4c116 + V[7] + W[0] + ch(V[4], V[5], V[6]) + rotr26(V[4]);
+	V[7] =  0x19a4c116 + V[7] + W[0] + ch(V[4], V[5], V[6]) + rotr26(V[4]) + rotr30(V[0]) + ma(V[1], V[2], V[0]);
 
-	V[2] += 0x1e376c08 + V[6] + W[1] + Ch(V[3], V[4], V[5]) + rotr26(V[3]);
-	V[6] =  0x1e376c08 + V[6] + W[1] + Ch(V[3], V[4], V[5]) + rotr26(V[3]) + rotr30(V[7]) + Ma(V[0], V[1], V[7]);
+	V[2] += 0x1e376c08 + V[6] + W[1] + ch(V[3], V[4], V[5]) + rotr26(V[3]);
+	V[6] =  0x1e376c08 + V[6] + W[1] + ch(V[3], V[4], V[5]) + rotr26(V[3]) + rotr30(V[7]) + ma(V[0], V[1], V[7]);
 
-	V[1] += 0x2748774c + V[5] + W[2] + Ch(V[2], V[3], V[4]) + rotr26(V[2]);
-	V[5] =  0x2748774c + V[5] + W[2] + Ch(V[2], V[3], V[4]) + rotr26(V[2]) + rotr30(V[6]) + Ma(V[7], V[0], V[6]);
+	V[1] += 0x2748774c + V[5] + W[2] + ch(V[2], V[3], V[4]) + rotr26(V[2]);
+	V[5] =  0x2748774c + V[5] + W[2] + ch(V[2], V[3], V[4]) + rotr26(V[2]) + rotr30(V[6]) + ma(V[7], V[0], V[6]);
 
-	V[0] += 0x34b0bcb5 + V[4] + W[3] + Ch(V[1], V[2], V[3]) + rotr26(V[1]);
-	V[4] =  0x34b0bcb5 + V[4] + W[3] + Ch(V[1], V[2], V[3]) + rotr26(V[1]) + rotr30(V[5]) + Ma(V[6], V[7], V[5]);
+	V[0] += 0x34b0bcb5 + V[4] + W[3] + ch(V[1], V[2], V[3]) + rotr26(V[1]);
+	V[4] =  0x34b0bcb5 + V[4] + W[3] + ch(V[1], V[2], V[3]) + rotr26(V[1]) + rotr30(V[5]) + ma(V[6], V[7], V[5]);
 
-	V[7] += 0x391c0cb3 + V[3] + W[4] + Ch(V[0], V[1], V[2]) + rotr26(V[0]);
-	V[3] =  0x391c0cb3 + V[3] + W[4] + Ch(V[0], V[1], V[2]) + rotr26(V[0]) + rotr30(V[4]) + Ma(V[5], V[6], V[4]);
+	V[7] += 0x391c0cb3 + V[3] + W[4] + ch(V[0], V[1], V[2]) + rotr26(V[0]);
+	V[3] =  0x391c0cb3 + V[3] + W[4] + ch(V[0], V[1], V[2]) + rotr26(V[0]) + rotr30(V[4]) + ma(V[5], V[6], V[4]);
 
-	V[6] += 0x4ed8aa4a + V[2] + W[5] + Ch(V[7], V[0], V[1]) + rotr26(V[7]);
-	V[2] =  0x4ed8aa4a + V[2] + W[5] + Ch(V[7], V[0], V[1]) + rotr26(V[7]) + rotr30(V[3]) + Ma(V[4], V[5], V[3]);
+	V[6] += 0x4ed8aa4a + V[2] + W[5] + ch(V[7], V[0], V[1]) + rotr26(V[7]);
+	V[2] =  0x4ed8aa4a + V[2] + W[5] + ch(V[7], V[0], V[1]) + rotr26(V[7]) + rotr30(V[3]) + ma(V[4], V[5], V[3]);
 
-	V[5] += 0x5b9cca4f + V[1] + W[6] + Ch(V[6], V[7], V[0]) + rotr26(V[6]);
-	V[1] =  0x5b9cca4f + V[1] + W[6] + Ch(V[6], V[7], V[0]) + rotr26(V[6]) + rotr30(V[2]) + Ma(V[3], V[4], V[2]);
+	V[5] += 0x5b9cca4f + V[1] + W[6] + ch(V[6], V[7], V[0]) + rotr26(V[6]);
+	V[1] =  0x5b9cca4f + V[1] + W[6] + ch(V[6], V[7], V[0]) + rotr26(V[6]) + rotr30(V[2]) + ma(V[3], V[4], V[2]);
 
-	V[4] += 0x682e6ff3 + V[0] + W[7] + Ch(V[5], V[6], V[7]) + rotr26(V[5]);
-	V[0] =  0x682e6ff3 + V[0] + W[7] + Ch(V[5], V[6], V[7]) + rotr26(V[5]) + rotr30(V[1]) + Ma(V[2], V[3], V[1]);
+	V[4] += 0x682e6ff3 + V[0] + W[7] + ch(V[5], V[6], V[7]) + rotr26(V[5]);
+	V[0] =  0x682e6ff3 + V[0] + W[7] + ch(V[5], V[6], V[7]) + rotr26(V[5]) + rotr30(V[1]) + ma(V[2], V[3], V[1]);
 
-	V[3] += 0x748f82ee + V[7] + W[8] + Ch(V[4], V[5], V[6]) + rotr26(V[4]);
-	V[7] =  0x748f82ee + V[7] + W[8] + Ch(V[4], V[5], V[6]) + rotr26(V[4]) + rotr30(V[0]) + Ma(V[1], V[2], V[0]);
+	V[3] += 0x748f82ee + V[7] + W[8] + ch(V[4], V[5], V[6]) + rotr26(V[4]);
+	V[7] =  0x748f82ee + V[7] + W[8] + ch(V[4], V[5], V[6]) + rotr26(V[4]) + rotr30(V[0]) + ma(V[1], V[2], V[0]);
 
-	V[2] += 0x78a5636f + V[6] + W[9] + Ch(V[3], V[4], V[5]) + rotr26(V[3]);
+	V[2] += 0x78a5636f + V[6] + W[9] + ch(V[3], V[4], V[5]) + rotr26(V[3]);
 
-	V[1] += 0x84c87814 + V[5] + W[10] + Ch(V[2], V[3], V[4]) + rotr26(V[2]);
+	V[1] += 0x84c87814 + V[5] + W[10] + ch(V[2], V[3], V[4]) + rotr26(V[2]);
 
-	V[0] += 0x8cc70208 + V[4] + W[11] + Ch(V[1], V[2], V[3]) + rotr26(V[1]);
+	V[0] += 0x8cc70208 + V[4] + W[11] + ch(V[1], V[2], V[3]) + rotr26(V[1]);
 
-	V[7] += V[3] + W[12] + Ch(V[0], V[1], V[2]) + rotr26(V[0]);
+	V[7] += V[3] + W[12] + ch(V[0], V[1], V[2]) + rotr26(V[0]);
 
 
 #define FOUND (0x80)
