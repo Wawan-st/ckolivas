@@ -793,6 +793,14 @@ static cl_int queue_diakgcn_kernel(_clState *clState, dev_blk_ctx *blk)
 	CL_SET_BLKARG(zeroA);
 	CL_SET_BLKARG(zeroB);
 
+	CL_SET_BLKARG(oneA);
+	CL_SET_BLKARG(twoA);
+	CL_SET_BLKARG(threeA);
+	CL_SET_BLKARG(fourA);
+	CL_SET_BLKARG(fiveA);
+	CL_SET_BLKARG(sixA);
+	CL_SET_BLKARG(sevenA);
+
 	CL_SET_ARG(clState->outputBuffer);
 
 	return status;
