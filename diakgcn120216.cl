@@ -44,8 +44,8 @@ __kernel
 			#ifndef GOFFSET
 			const u base,
 			#endif
-			const uint PreVal4,
-			const uint H1, const uint D1A, const uint PreVal0, const uint B1, const uint C1,
+			const uint PreVal0, const uint PreVal4,
+			const uint H1, const uint D1A, const uint B1, const uint C1,
 			const uint F1, const uint G1, const uint C1addK5, const uint B1addK6, const uint PreVal0addK7,
 			const uint W16addK16, const uint W17addK17,
 			const uint PreW18, const uint PreW19,
