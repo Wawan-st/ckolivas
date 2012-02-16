@@ -483,8 +483,6 @@ _clState *initCl(unsigned int gpu, char *name, size_t nameSize)
 			goto build;
 		}
 
-		free(binaries[gpu]);
-
 		clRetainProgram(clState->program);
 		if (status != CL_SUCCESS) {
 			applog(LOG_ERR, "Error: Retaining Program (clRetainProgram)");
