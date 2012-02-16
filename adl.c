@@ -8,6 +8,7 @@
 
 #include "miner.h"
 #include "ADL_SDK/adl_sdk.h"
+#include "compat.h"
 
 #if defined (__linux)
 #include <dlfcn.h>
@@ -16,7 +17,6 @@
 #else /* WIN32 */
 #include <windows.h>
 #include <tchar.h>
-#define sleep(x) Sleep(x)
 #endif
 #include "adl_functions.h"
 
@@ -26,7 +26,6 @@ bool opt_reorder = false;
 int opt_hysteresis = 3;
 const int opt_targettemp = 75;
 const int opt_overheattemp = 85;
-const int opt_cutofftemp = 95;
 static pthread_mutex_t adl_lock;
 
 struct gpu_adapters {
@@ -223,23 +222,22 @@ void init_adl(int nDevs)
 		if (lpAdapterID == last_adapter)
 			continue;
 
-		if (opt_debug)
-			applog(LOG_DEBUG, "GPU %d "
-			       "iAdapterIndex %d "
-			       "strUDID %s "
-			       "iBusNumber %d "
-			       "iDeviceNumber %d "
-			       "iFunctionNumber %d "
-			       "iVendorID %d "
-			       "strAdapterName  %s ",
-			       devices,
-			       iAdapterIndex,
-			       lpInfo[i].strUDID,
-			       lpInfo[i].iBusNumber,
-			       lpInfo[i].iDeviceNumber,
-			       lpInfo[i].iFunctionNumber,
-			       lpInfo[i].iVendorID,
-			       lpInfo[i].strAdapterName);
+		applog(LOG_DEBUG, "GPU %d "
+		       "iAdapterIndex %d "
+		       "strUDID %s "
+		       "iBusNumber %d "
+		       "iDeviceNumber %d "
+		       "iFunctionNumber %d "
+		       "iVendorID %d "
+		       "strAdapterName  %s ",
+		       devices,
+		       iAdapterIndex,
+		       lpInfo[i].strUDID,
+		       lpInfo[i].iBusNumber,
+		       lpInfo[i].iDeviceNumber,
+		       lpInfo[i].iFunctionNumber,
+		       lpInfo[i].iVendorID,
+		       lpInfo[i].strAdapterName);
 
 		adapters[devices].iAdapterIndex = iAdapterIndex;
 		adapters[devices].iBusNumber = lpInfo[i].iBusNumber;
@@ -443,8 +441,8 @@ void init_adl(int nDevs)
 			ga->targettemp = opt_targettemp;
 		if (!ga->overtemp)
 			ga->overtemp = opt_overheattemp;
-		if (!ga->cutofftemp)
-			ga->cutofftemp = opt_cutofftemp;
+		if (!gpus[gpu].cutofftemp)
+			gpus[gpu].cutofftemp = opt_cutofftemp;
 		if (opt_autofan) {
 			ga->autofan = true;
 			/* Set a safe starting default if we're automanaging fan speeds */
@@ -503,6 +501,7 @@ float gpu_temp(int gpu)
 	lock_adl();
 	ret = __gpu_temp(ga);
 	unlock_adl();
+	gpus[gpu].temp = ret;
 	return ret;
 }
 
@@ -908,8 +907,7 @@ int set_fanspeed(int gpu, int iFanSpeed)
 
 	ga = &gpus[gpu].adl;
 	if (!(ga->lpFanSpeedInfo.iFlags & (ADL_DL_FANCTRL_SUPPORTS_RPM_WRITE | ADL_DL_FANCTRL_SUPPORTS_PERCENT_WRITE ))) {
-		if (opt_debug)
-			applog(LOG_DEBUG, "GPU %d doesn't support rpm or percent write", gpu);
+		applog(LOG_DEBUG, "GPU %d doesn't support rpm or percent write", gpu);
 		return ret;
 	}
 
@@ -919,8 +917,7 @@ int set_fanspeed(int gpu, int iFanSpeed)
 
 	lock_adl();
 	if (ADL_Overdrive5_FanSpeed_Get(ga->iAdapterIndex, 0, &ga->lpFanSpeedValue) != ADL_OK) {
-		if (opt_debug)
-			applog(LOG_DEBUG, "GPU %d call to fanspeed get failed", gpu);
+		applog(LOG_DEBUG, "GPU %d call to fanspeed get failed", gpu);
 	}
 	if (!(ga->lpFanSpeedInfo.iFlags & ADL_DL_FANCTRL_SUPPORTS_PERCENT_WRITE)) {
 		/* Must convert speed to an RPM */
@@ -977,8 +974,7 @@ static void fan_autotune(int gpu, int temp, int fanpercent, bool __maybe_unused 
 		applog(LOG_WARNING, "Overheat detected on GPU %d, increasing fan to 100%", gpu);
 		newpercent = iMax;
 	} else if (temp > ga->targettemp && fanpercent < top && temp >= ga->lasttemp) {
-		if (opt_debug)
-			applog(LOG_DEBUG, "Temperature over target, increasing fanspeed");
+		applog(LOG_DEBUG, "Temperature over target, increasing fanspeed");
 		if (temp > ga->targettemp + opt_hysteresis)
 			newpercent = ga->targetfan + 10;
 		else
@@ -986,19 +982,16 @@ static void fan_autotune(int gpu, int temp, int fanpercent, bool __maybe_unused 
 		if (newpercent > top)
 			newpercent = top;
 	} else if (fanpercent > bot && temp < ga->targettemp - opt_hysteresis && temp <= ga->lasttemp) {
-		if (opt_debug)
-			applog(LOG_DEBUG, "Temperature %d degrees below target, decreasing fanspeed", opt_hysteresis);
+		applog(LOG_DEBUG, "Temperature %d degrees below target, decreasing fanspeed", opt_hysteresis);
 		newpercent = ga->targetfan - 1;
 	} else {
 		/* We're in the optimal range, make minor adjustments if the
 		 * temp is still drifting */
 		if (fanpercent > bot && temp < ga->lasttemp && ga->lasttemp < ga->targettemp) {
-			if (opt_debug)
-				applog(LOG_DEBUG, "Temperature dropping while in target range, decreasing fanspeed");
+			applog(LOG_DEBUG, "Temperature dropping while in target range, decreasing fanspeed");
 			newpercent = ga->targetfan - 1;
 		} else if (fanpercent < top && temp > ga->lasttemp && temp > ga->targettemp - opt_hysteresis) {
-			if (opt_debug)
-				applog(LOG_DEBUG, "Temperature rising while in target range, increasing fanspeed");
+			applog(LOG_DEBUG, "Temperature rising while in target range, increasing fanspeed");
 			newpercent = ga->targetfan + 1;
 		}
 	}
@@ -1016,7 +1009,8 @@ static void fan_autotune(int gpu, int temp, int fanpercent, bool __maybe_unused 
 
 void gpu_autotune(int gpu, bool *enable)
 {
-	int temp, fanpercent, engine, newengine, twintemp = 0;
+	int lev, temp, fanpercent, engine, levengine, newengine, twintemp = 0;
+	ADLODPerformanceLevels *lpOdPerformanceLevels;
 	bool fan_optimal = true;
 	struct cgpu_info *cgpu;
 	struct gpu_adl *ga;
@@ -1024,7 +1018,12 @@ void gpu_autotune(int gpu, bool *enable)
 	cgpu = &gpus[gpu];
 	ga = &cgpu->adl;
 
+	lev = ga->lpOdParameters.iNumberOfPerformanceLevels - 1;
+	lpOdPerformanceLevels = alloca(sizeof(ADLODPerformanceLevels) + (lev * sizeof(ADLODPerformanceLevel)));
+	lpOdPerformanceLevels->iSize = sizeof(ADLODPerformanceLevels) + sizeof(ADLODPerformanceLevel) * lev;
+
 	lock_adl();
+	ADL_Overdrive5_ODPerformanceLevels_Get(ga->iAdapterIndex, 0, lpOdPerformanceLevels);
 	ADL_Overdrive5_CurrentActivity_Get(ga->iAdapterIndex, &ga->lpActivity);
 	temp = __gpu_temp(ga);
 	if (ga->twin)
@@ -1033,6 +1032,7 @@ void gpu_autotune(int gpu, bool *enable)
 	unlock_adl();
 
 	newengine = engine = gpu_engineclock(gpu) * 100;
+	levengine = lpOdPerformanceLevels->aLevels[lev].iEngineClock;
 
 	if (temp && fanpercent >= 0 && ga->autofan) {
 		if (!ga->twin)
@@ -1055,7 +1055,7 @@ void gpu_autotune(int gpu, bool *enable)
 	}
 
 	if (engine && ga->autoengine) {
-		if (temp > ga->cutofftemp) {
+		if (temp > cgpu->cutofftemp) {
 			applog(LOG_WARNING, "Hit thermal cutoff limit on GPU %d, disabling!", gpu);
 			*enable = false;
 			newengine = ga->minspeed;
@@ -1063,16 +1063,14 @@ void gpu_autotune(int gpu, bool *enable)
 			applog(LOG_WARNING, "Overheat detected, decreasing GPU %d clock speed", gpu);
 			newengine = ga->minspeed;
 		} else if (temp > ga->targettemp + opt_hysteresis && engine > ga->minspeed && fan_optimal) {
-			if (opt_debug)
-				applog(LOG_DEBUG, "Temperature %d degrees over target, decreasing clock speed", opt_hysteresis);
+			applog(LOG_DEBUG, "Temperature %d degrees over target, decreasing clock speed", opt_hysteresis);
 			newengine = engine - ga->lpOdParameters.sEngineClock.iStep;
-			/* Only try to tune engine speed up if the current performance level is at max and this GPU is not
-			 * disabled */
-		} else if ((ga->lpActivity.iCurrentPerformanceLevel == ga->lpOdParameters.iNumberOfPerformanceLevels - 1) &&
-			   (temp < ga->targettemp && engine < ga->maxspeed) && *enable) {
-			if (opt_debug)
-				applog(LOG_DEBUG, "Temperature below target, increasing clock speed");
-			newengine = engine + ga->lpOdParameters.sEngineClock.iStep;
+			/* Only try to tune engine speed up if this GPU is not
+			 * disabled, and work off the performance level engine
+			 * speed, not the current engine speed. */
+		} else if (temp < ga->targettemp && levengine < ga->maxspeed && *enable) {
+			applog(LOG_DEBUG, "Temperature below target, increasing clock speed");
+			newengine = levengine + ga->lpOdParameters.sEngineClock.iStep;
 		}
 
 		if (newengine > ga->maxspeed)
@@ -1122,7 +1120,7 @@ void change_autosettings(int gpu)
 
 	wlogprint("Target temperature: %d\n", ga->targettemp);
 	wlogprint("Overheat temperature: %d\n", ga->overtemp);
-	wlogprint("Cutoff temperature: %d\n", ga->cutofftemp);
+	wlogprint("Cutoff temperature: %d\n", gpus[gpu].cutofftemp);
 	wlogprint("Toggle [F]an auto [G]PU auto\nChange [T]arget [O]verheat [C]utoff\n");
 	wlogprint("Or press any other key to continue\n");
 	input = getch();
@@ -1159,7 +1157,7 @@ void change_autosettings(int gpu)
 		if (val <= ga->overtemp || val > 200)
 			wlogprint("Invalid temperature");
 		else
-			ga->cutofftemp = val;
+			gpus[gpu].cutofftemp = val;
 	}
 }
 

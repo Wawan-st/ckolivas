@@ -23,9 +23,9 @@
 
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <sys/wait.h>
 
 #ifndef WIN32
+#include <sys/wait.h>
 #include <sys/resource.h>
 #endif
 #include <libgen.h>
@@ -79,6 +79,60 @@ static inline void affine_to_cpu(int id, int cpu)
 extern bool submit_work_sync(struct thr_info *thr, const struct work *work_in);
 extern char *set_int_range(const char *arg, int *i, int min, int max);
 extern int dev_from_id(int thr_id);
+
+
+/* chipset-optimized hash functions */
+extern bool ScanHash_4WaySSE2(int, const unsigned char *pmidstate,
+	unsigned char *pdata, unsigned char *phash1, unsigned char *phash,
+	const unsigned char *ptarget,
+	uint32_t max_nonce, uint32_t *last_nonce, uint32_t nonce);
+
+extern bool ScanHash_altivec_4way(int thr_id, const unsigned char *pmidstate,
+	unsigned char *pdata,
+	unsigned char *phash1, unsigned char *phash,
+	const unsigned char *ptarget,
+	uint32_t max_nonce, uint32_t *last_nonce, uint32_t nonce);
+
+extern bool scanhash_via(int, const unsigned char *pmidstate,
+	unsigned char *pdata,
+	unsigned char *phash1, unsigned char *phash,
+	const unsigned char *target,
+	uint32_t max_nonce, uint32_t *last_nonce, uint32_t n);
+
+extern bool scanhash_c(int, const unsigned char *midstate, unsigned char *data,
+	      unsigned char *hash1, unsigned char *hash,
+	      const unsigned char *target,
+	      uint32_t max_nonce, uint32_t *last_nonce, uint32_t n);
+
+extern bool scanhash_cryptopp(int, const unsigned char *midstate,unsigned char *data,
+	      unsigned char *hash1, unsigned char *hash,
+	      const unsigned char *target,
+	      uint32_t max_nonce, uint32_t *last_nonce, uint32_t n);
+
+extern bool scanhash_asm32(int, const unsigned char *midstate,unsigned char *data,
+	      unsigned char *hash1, unsigned char *hash,
+	      const unsigned char *target,
+	      uint32_t max_nonce, uint32_t *last_nonce, uint32_t nonce);
+
+extern bool scanhash_sse2_64(int, const unsigned char *pmidstate, unsigned char *pdata,
+	unsigned char *phash1, unsigned char *phash,
+	const unsigned char *ptarget,
+	uint32_t max_nonce, uint32_t *last_nonce,
+	uint32_t nonce);
+
+extern bool scanhash_sse4_64(int, const unsigned char *pmidstate, unsigned char *pdata,
+	unsigned char *phash1, unsigned char *phash,
+	const unsigned char *ptarget,
+	uint32_t max_nonce, uint32_t *last_nonce,
+	uint32_t nonce);
+
+extern bool scanhash_sse2_32(int, const unsigned char *pmidstate, unsigned char *pdata,
+	unsigned char *phash1, unsigned char *phash,
+	const unsigned char *ptarget,
+	uint32_t max_nonce, uint32_t *last_nonce,
+	uint32_t nonce);
+
+
 
 
 #ifdef WANT_CPUMINE
@@ -758,8 +812,7 @@ CPUSearch:
 
 	/* if nonce found, submit work */
 	if (unlikely(rc)) {
-		if (opt_debug)
-			applog(LOG_DEBUG, "CPU %d found something?", dev_from_id(thr_id));
+		applog(LOG_DEBUG, "CPU %d found something?", dev_from_id(thr_id));
 		if (unlikely(!submit_work_sync(thr, work))) {
 			applog(LOG_ERR, "Failed to submit_work_sync in miner_thread %d", thr_id);
 		}

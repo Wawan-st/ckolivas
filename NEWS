@@ -1,3 +1,133 @@
+Version 2.2.6 - February 16, 2012
+
+- Provide warning on each startup about sdk 2.6
+- Fix unused warnings on win32.
+- bitforce: Simplify BFopen WIN32 ifdef/else
+- Fix initialization warning with jansson 1.3
+- bitforce: Cleanup extraneous TODO that isn't needed
+- Move tcsetattr (and new tcflush) into *nix BFopen to simplify things a bit
+- Add message explaining 2nd thread disabling for dynamic mode and how to tune
+it.
+- Move logwindow down once number of devices is known.
+- Automatically choose phatk kernel for bitalign non-gcn ATI cards, and then
+only select poclbm if SDK2.6 is detected.
+- Allow the refresh interval to be adjusted in dynamic intensity with a
+--gpu-dyninterval parameter.
+- Make curses display visible right from the beginning and fix the window sizes
+so the initial messages don't get lost once the status window is drawn.
+- The amount of work scanned can fluctuate when intensity changes and since we
+do this one cycle behind, we increment the work more than enough to prevent
+repeati
+- bitforce: Set a 30 second timeout for serial port on Windows, since the
+default is undefined
+- Use PreVal4addT1 instead of PreVal4 in poclbm kernel.
+- Import PreVal4 and PreVal0 into poclbm kernel.
+- Import more prepared constants into poclbm kernel.
+- Keep variables in one array but use Vals[] name for consistency with other
+kernel designs.
+- Replace constants that are mandatorily added in poclbm kernel with one value.
+- Remove addition of final constant before testing for result in poclbm kernel.
+- Hand optimise variable addition order.
+- Hand optimise first variable declaration order in poclbm kernel.
+- Radical reordering machine based first pass to change variables as late as
+possible, bringing their usage close together.
+- fix strcpy NULL pointer if env HOME unset.
+- bitforce: Disable automatic scanning when at least one device is specified
+manually
+- Unroll all poclbm additions to enable further optimisations.
+
+
+Version 2.2.5 - February 13, 2012
+
+- Make output buffer write only as per Diapolo's suggestion.
+- Constify nonce in poclbm.
+- Use local and group id on poclbm kernel as well.
+- Microoptimise phatk kernel on return code.
+- Adjust engine speed up according to performance level engine setting, not the
+current engine speed.
+- Try to load a binary if we've defaulted to the poclbm kernel on SDK2.6
+- Use the poclbm kernel on SDK2.6 with bitalign devices only if there is no
+binary available.
+- Further generic microoptimisations to poclbm kernel.
+- The longstanding generation of a zero sized binary appears to be due to the
+OpenCL library putting the binary in a RANDOM SLOT amongst 4 possible binary
+locations. Iterate over each of them after building from source till the real
+binary is found and use that.
+- Fix harmless warnings with -Wsign-compare to allow cgminer to build with -W.
+- Fix missing field initialisers warnings.
+- Put win32 equivalents of nanosleep and sleep into compat.h fixing sleep() for
+adl.c.
+- Restore compatibility with Jansson 1.3 and 2.0 (api.c required 2.1)
+- Modularized logging, support for priority based logging
+- Move CPU chipset specific optimization into device-cpu
+
+
+Version 2.2.4 - February 11, 2012
+
+- Fix double definition of A0 B0 to zeroA zeroB.
+- Retain cl program after successfully loading a binary image. May decrease
+failures to build kernels at startup.
+- Variable unused after this so remove setting it.
+- BFI INT patching is not necessarily true on binary loading of files and not
+true on ATI SDK2.6+. Report bitalign instead.
+- Various string fixes for reject reason.
+- Generalize --temp-cutoff and implement support for reading temperature from
+BitFORCE FPGAs
+- Change message from recovered to alive since it is used on startup as well as
+when a pool has recovered.
+- Start mining as soon as any pool is found active and rely on the watchpool
+thread to bring up other pools.
+- Delayed responses from testing pools that are down can hold up the watchdog
+thread from getting to its device testing code, leading to false detection of
+the GPU not checking in, and can substantially delay auto gpu/auto fan
+management leading to overheating. Move pool watching to its own thread.
+- Bugfix: BitFORCE index needs to be static to count correctly
+- Space out retrieval of extra work according to the number of mining threads.
+- Make shutdown more robust. Enable the input thread only after the other
+threads exist. Don't kill off the workio thread and use it to exit main() only
+if there is an unexpected problem. Use kill_work() for all anticipated shutdowns
+where possible. Remove unused thread entry.
+- Change poclbm version number.
+- One array is faster than 2 separate arrays so change to that in poclbm kernel.
+- Microoptimisations to poclbm kernel which increase throughput slightly.
+- Import diablominer kernel. Currently disabled as not working.
+- Import diapolo kernel. Currently disabled as not working.
+- Conflicting entries of cl_kernel may have been causing problems, and
+automatically chosen kernel type was not being passed on. Rename the enum to
+cl_kernels and store the chosen kernel in each clState.
+- Set cl_amd_media_ops with the BITALIGN flag and allow non-bitselect devices to
+build.
+- ALlow much longer filenames for kernels to load properly.
+- Allow different kernels to be used by different devices and fix the logic fail
+of overcorrecting on last commit with !strstr.
+- Fix kernel selection process and build error.
+- queue_phatk_kernel now uses CL_SET_VARG() for base-nonce(s), too
+- added OpenCL >= 1.1 detection code, in preparation of OpenCL 1.1 global offset
+parameter support
+- Use K array explicitly to make it clear what is being added.
+- Work items have a tendency to expire at exactly the same time and we don't
+queue extra items when there are plenty in the queue, regardless of age. Allow
+extra work items to be queued if adequate time has passed since we last
+requested work even if over the limit.
+- Discard work when failover-only is enabled and the work has come from a
+different pool.
+- Missing include to build on newer mingw32.
+- Move from the thread safe localtime_r to regular localtime which is the only
+one supported on newer pthread libraries on mingw32 to make it compile with the
+newer ming. Thread safety is of no importance where localtime is used in this
+code.
+- Define in_addr_t in windows if required
+- sys/wait.h not required in windows
+- Allow API to restrict access by IP address
+- Add pool switching to example miner.php
+- Display X-Reject-Reason, when provided
+- Remove the test for whether the device is on the highest profil level before
+raising the GPU speed as it is ineffectual and may prevent raising the GPU
+speed.
+- Remove unnecessary check for opt_debug one every invocation of applog at
+LOG_DEBUG level and place the check in applog().
+
+
 Version 2.2.3 - February 6, 2012
 
 - Revert "Rewrite the convoluted get_work() function to be much simpler and roll

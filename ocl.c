@@ -111,6 +111,12 @@ int clDevicesNum(void) {
 		status = clGetPlatformInfo(platform, CL_PLATFORM_VERSION, sizeof(pbuff), pbuff, NULL);
 		if (status == CL_SUCCESS)
 			applog(LOG_INFO, "CL Platform %d version: %s", i, pbuff);
+		if (strstr(pbuff, "844.4") /* Linux 64 bit ATI 2.6 SDK */	||
+		    strstr(pbuff, "851.4") /* Windows 64 bit "" */		||
+		    strstr(pbuff, "831.4") /* Windows & Linux 32 bit "" */ ) {
+				applog(LOG_WARNING, "AMD OpenCL SDK 2.6 installed giving POOR PERFORMANCE on R5xxx and R6xxx.");
+				applog(LOG_WARNING, "Downgrade SDK, delete .bin files and restart cgminer to fix this.");
+		}
 		status = clGetDeviceIDs(platform, CL_DEVICE_TYPE_GPU, 0, NULL, &numDevices);
 		if (status != CL_SUCCESS) {
 			applog(LOG_ERR, "Error: Getting Device IDs (num)");
@@ -129,8 +135,7 @@ static int advance(char **area, unsigned *remaining, const char *marker)
 	char *find = memmem(*area, *remaining, marker, strlen(marker));
 
 	if (!find) {
-		if (opt_debug)
-			applog(LOG_DEBUG, "Marker \"%s\" not found", marker);
+		applog(LOG_DEBUG, "Marker \"%s\" not found", marker);
 		return 0;
 	}
 	*remaining -= find - *area;
@@ -176,12 +181,10 @@ void patch_opcodes(char *w, unsigned remaining)
 		opcode++;
 		remaining -= 8;
 	}
-	if (opt_debug) {
-		applog(LOG_DEBUG, "Potential OP3 instructions identified: "
-			"%i BFE_INT, %i BFE_UINT, %i BYTE_ALIGN",
-			count_bfe_int, count_bfe_uint, count_byte_align);
-		applog(LOG_DEBUG, "Patched a total of %i BFI_INT instructions", patched);
-	}
+	applog(LOG_DEBUG, "Potential OP3 instructions identified: "
+		"%i BFE_INT, %i BFE_UINT, %i BYTE_ALIGN",
+		count_bfe_int, count_bfe_uint, count_byte_align);
+	applog(LOG_DEBUG, "Patched a total of %i BFI_INT instructions", patched);
 }
 
 _clState *initCl(unsigned int gpu, char *name, size_t nameSize)
@@ -189,11 +192,11 @@ _clState *initCl(unsigned int gpu, char *name, size_t nameSize)
 	_clState *clState = calloc(1, sizeof(_clState));
 	bool patchbfi = false, prog_built = false;
 	cl_platform_id platform = NULL;
+	char pbuff[256], vbuff[255];
 	cl_platform_id* platforms;
 	cl_device_id *devices;
 	cl_uint numPlatforms;
 	cl_uint numDevices;
-	char pbuff[256];
 	cl_int status;
 
 	status = clGetPlatformIDs(0, NULL, &numPlatforms);
@@ -209,7 +212,7 @@ _clState *initCl(unsigned int gpu, char *name, size_t nameSize)
 		return NULL;
 	}
 
-	if (opt_platform_id >= numPlatforms) {
+	if (opt_platform_id >= (int)numPlatforms) {
 		applog(LOG_ERR, "Specified platform that does not exist");
 		return NULL;
 	}
@@ -230,9 +233,16 @@ _clState *initCl(unsigned int gpu, char *name, size_t nameSize)
 	status = clGetPlatformInfo(platform, CL_PLATFORM_NAME, sizeof(pbuff), pbuff, NULL);
 	if (status == CL_SUCCESS)
 		applog(LOG_INFO, "CL Platform name: %s", pbuff);
-	status = clGetPlatformInfo(platform, CL_PLATFORM_VERSION, sizeof(pbuff), pbuff, NULL);
+	status = clGetPlatformInfo(platform, CL_PLATFORM_VERSION, sizeof(vbuff), vbuff, NULL);
 	if (status == CL_SUCCESS)
-		applog(LOG_INFO, "CL Platform version: %s", pbuff);
+		applog(LOG_INFO, "CL Platform version: %s", vbuff);
+
+	if (strstr(vbuff, "844.4") /* Linux 64 bit ATI 2.6 SDK */	||
+	    strstr(vbuff, "851.4") /* Windows 64 bit "" */		||
+	    strstr(vbuff, "831.4") /* Windows & Linux 32 bit "" */ ) {
+			applog(LOG_WARNING, "AMD OpenCL SDK 2.6 installed giving POOR PERFORMANCE on R5xxx and R6xxx.");
+			applog(LOG_WARNING, "Downgrade SDK, delete .bin files and restart cgminer to fix this.");
+	}
 
 	status = clGetDeviceIDs(platform, CL_DEVICE_TYPE_GPU, 0, NULL, &numDevices);
 	if (status != CL_SUCCESS) {
@@ -288,7 +298,8 @@ _clState *initCl(unsigned int gpu, char *name, size_t nameSize)
 		return NULL;
 	}
 
-	/* Check for BFI INT support (includes whitelist check). Hopefully people don't mix devices with and without it! */
+	/* Check for BFI INT support. Hopefully people don't mix devices with
+	 * and without it! */
 	char * extensions = malloc(1024);
 	const char * camo = "cl_amd_media_ops";
 	char *find;
@@ -299,24 +310,8 @@ _clState *initCl(unsigned int gpu, char *name, size_t nameSize)
 		return NULL;
 	}
 	find = strstr(extensions, camo);
-	if (find) {
+	if (find)
 		clState->hasBitAlign = true;
-		if (strstr(name, "Cedar") ||
-		    strstr(name, "Redwood") ||
-		    strstr(name, "Juniper") ||
-		    strstr(name, "Cypress" ) ||
-		    strstr(name, "Hemlock" ) ||
-		    strstr(name, "Caicos" ) ||
-		    strstr(name, "Turks" ) ||
-		    strstr(name, "Barts" ) ||
-		    strstr(name, "Cayman" ) ||
-		    strstr(name, "Antilles" ) ||
-		    strstr(name, "Wrestler" ) ||
-		    strstr(name, "Zacate" ) ||
-		    strstr(name, "WinterPark" ) ||
-		    strstr(name, "BeaverCreek" ))
-			patchbfi = true;
-	}
 		
 	/* Check for OpenCL >= 1.0 support, needed for global offset parameter usage. */
 	char * devoclver = malloc(1024);
@@ -336,16 +331,14 @@ _clState *initCl(unsigned int gpu, char *name, size_t nameSize)
 		applog(LOG_ERR, "Error: Failed to clGetDeviceInfo when trying to get CL_DEVICE_PREFERRED_VECTOR_WIDTH_INT");
 		return NULL;
 	}
-	if (opt_debug)
-		applog(LOG_DEBUG, "Preferred vector width reported %d", clState->preferred_vwidth);
+	applog(LOG_DEBUG, "Preferred vector width reported %d", clState->preferred_vwidth);
 
 	status = clGetDeviceInfo(devices[gpu], CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(size_t), (void *)&clState->max_work_size, NULL);
 	if (status != CL_SUCCESS) {
 		applog(LOG_ERR, "Error: Failed to clGetDeviceInfo when trying to get CL_DEVICE_MAX_WORK_GROUP_SIZE");
 		return NULL;
 	}
-	if (opt_debug)
-		applog(LOG_DEBUG, "Max work group size reported %d", clState->max_work_size);
+	applog(LOG_DEBUG, "Max work group size reported %d", clState->max_work_size);
 
 	/* For some reason 2 vectors is still better even if the card says
 	 * otherwise, and many cards lie about their max so use 256 as max
@@ -360,7 +353,7 @@ _clState *initCl(unsigned int gpu, char *name, size_t nameSize)
 
 	if (opt_vectors)
 		clState->preferred_vwidth = opt_vectors;
-	if (opt_worksize && opt_worksize <= clState->max_work_size)
+	if (opt_worksize && opt_worksize <= (int)clState->max_work_size)
 		clState->work_size = opt_worksize;
 	else
 		clState->work_size = (clState->max_work_size <= 256 ? clState->max_work_size : 256) /
@@ -376,20 +369,25 @@ _clState *initCl(unsigned int gpu, char *name, size_t nameSize)
 	char numbuf[10];
 
 	if (chosen_kernel == KL_NONE) {
-		if (strstr(name, "Tahiti"))
-			clState->chosen_kernel = KL_DIAKGCN;
-		else if (!clState->hasBitAlign)
+		/* If no binary is available, and we have a card that suffers with phatk
+		 * on SDK2.6, use the poclbm kernel instead if one has not been
+		 * selected. */
+		if (strstr(name, "Tahiti") // GCN
+		    || !clState->hasBitAlign // Older Radeon & Nvidia
+		    || strstr(vbuff, "844.4") // Linux 64 bit ATI 2.6 SDK
+		    || strstr(vbuff, "851.4") // Windows 64 bit ""
+		    || strstr(vbuff, "831.4") // Windows & Linux 32 bit ""
+		) {
+			applog(LOG_INFO, "Selecting poclbm kernel");
 			clState->chosen_kernel = KL_POCLBM;
-		else
+		} else {
+			applog(LOG_INFO, "Selecting phatk kernel");
 			clState->chosen_kernel = KL_PHATK;
+		}
 	} else
 		clState->chosen_kernel = chosen_kernel;
 
 	switch (clState->chosen_kernel) {
-		case KL_DIAKGCN:
-			strcpy(filename, DIAKGCN_KERNNAME".cl");
-			strcpy(binaryfilename, DIAKGCN_KERNNAME);
-			break;
 		case KL_POCLBM:
 			strcpy(filename, POCLBM_KERNNAME".cl");
 			strcpy(binaryfilename, POCLBM_KERNNAME);
@@ -399,6 +397,14 @@ _clState *initCl(unsigned int gpu, char *name, size_t nameSize)
 			strcpy(filename, PHATK_KERNNAME".cl");
 			strcpy(binaryfilename, PHATK_KERNNAME);
 			break;
+		case KL_DIAKGCN:
+			strcpy(filename, DIAKGCN_KERNNAME".cl");
+			strcpy(binaryfilename, DIAKGCN_KERNNAME);
+			break;
+		case KL_DIABLO:
+			strcpy(filename, DIABLO_KERNNAME".cl");
+			strcpy(binaryfilename, DIABLO_KERNNAME);
+			break;
 	}
 
 	FILE *binaryfile;
@@ -407,18 +413,21 @@ _clState *initCl(unsigned int gpu, char *name, size_t nameSize)
 	int pl;
 	char *source = file_contents(filename, &pl);
 	size_t sourceSize[] = {(size_t)pl};
+	cl_uint slot, cpnd;
+
+	slot = cpnd = 0;
 
 	if (!source)
 		return NULL;
 
-	binary_sizes = (size_t *)malloc(sizeof(size_t)*numDevices);
+	binary_sizes = calloc(sizeof(size_t) * MAX_GPUDEVICES * 4, 1);
 	if (unlikely(!binary_sizes)) {
-		applog(LOG_ERR, "Unable to malloc binary_sizes");
+		applog(LOG_ERR, "Unable to calloc binary_sizes");
 		return NULL;
 	}
-	binaries = (char **)malloc(sizeof(char *)*numDevices);
+	binaries = calloc(sizeof(char *) * MAX_GPUDEVICES * 4, 1);
 	if (unlikely(!binaries)) {
-		applog(LOG_ERR, "Unable to malloc binaries");
+		applog(LOG_ERR, "Unable to calloc binaries");
 		return NULL;
 	}
 
@@ -439,47 +448,52 @@ _clState *initCl(unsigned int gpu, char *name, size_t nameSize)
 
 	binaryfile = fopen(binaryfilename, "rb");
 	if (!binaryfile) {
-		if (opt_debug)
-			applog(LOG_DEBUG, "No binary found, generating from source");
+		applog(LOG_DEBUG, "No binary found, generating from source");
 	} else {
 		struct stat binary_stat;
 
 		if (unlikely(stat(binaryfilename, &binary_stat))) {
-			if (opt_debug)
-				applog(LOG_DEBUG, "Unable to stat binary, generating from source");
+			applog(LOG_DEBUG, "Unable to stat binary, generating from source");
 			fclose(binaryfile);
 			goto build;
 		}
 		if (!binary_stat.st_size)
 			goto build;
 
-		binary_sizes[gpu] = binary_stat.st_size;
-		binaries[gpu] = (char *)malloc(binary_sizes[gpu]);
-		if (unlikely(!binaries[gpu])) {
-			applog(LOG_ERR, "Unable to malloc binaries");
+		binary_sizes[slot] = binary_stat.st_size;
+		binaries[slot] = (char *)calloc(binary_sizes[slot], 1);
+		if (unlikely(!binaries[slot])) {
+			applog(LOG_ERR, "Unable to calloc binaries");
 			fclose(binaryfile);
 			return NULL;
 		}
 
-		if (fread(binaries[gpu], 1, binary_sizes[gpu], binaryfile) != binary_sizes[gpu]) {
-			applog(LOG_ERR, "Unable to fread binaries[gpu]");
+		if (fread(binaries[slot], 1, binary_sizes[slot], binaryfile) != binary_sizes[slot]) {
+			applog(LOG_ERR, "Unable to fread binaries");
 			fclose(binaryfile);
-			free(binaries[gpu]);
+			free(binaries[slot]);
 			goto build;
 		}
 
-		clState->program = clCreateProgramWithBinary(clState->context, 1, &devices[gpu], &binary_sizes[gpu], (const unsigned char **)&binaries[gpu], &status, NULL);
+		clState->program = clCreateProgramWithBinary(clState->context, 1, &devices[gpu], &binary_sizes[slot], (const unsigned char **)binaries, &status, NULL);
 		if (status != CL_SUCCESS) {
 			applog(LOG_ERR, "Error: Loading Binary into cl_program (clCreateProgramWithBinary)");
 			fclose(binaryfile);
-			free(binaries[gpu]);
+			free(binaries[slot]);
 			goto build;
 		}
-		fclose(binaryfile);
-		if (opt_debug)
-			applog(LOG_DEBUG, "Loaded binary image %s", binaryfilename);
 
 		free(binaries[gpu]);
+
+		clRetainProgram(clState->program);
+		if (status != CL_SUCCESS) {
+			applog(LOG_ERR, "Error: Retaining Program (clRetainProgram)");
+			return NULL;
+		}
+
+		fclose(binaryfile);
+		applog(LOG_DEBUG, "Loaded binary image %s", binaryfilename);
+
 		goto built;
 	}
 
@@ -505,27 +519,38 @@ build:
 
 	sprintf(CompilerOptions, "-D WORKSIZE=%d -D VECTORS%d",
 		(int)clState->work_size, clState->preferred_vwidth);
-	if (opt_debug)
-		applog(LOG_DEBUG, "Setting worksize to %d", clState->work_size);
-	if (clState->preferred_vwidth > 1 && opt_debug)
+	applog(LOG_DEBUG, "Setting worksize to %d", clState->work_size);
+	if (clState->preferred_vwidth > 1)
 		applog(LOG_DEBUG, "Patched source to suit %d vectors", clState->preferred_vwidth);
 
 	if (clState->hasBitAlign) {
 		strcat(CompilerOptions, " -D BITALIGN");
-		if (opt_debug)
-			applog(LOG_DEBUG, "cl_amd_media_ops found, setting BITALIGN");
-	} else if (opt_debug)
+		applog(LOG_DEBUG, "cl_amd_media_ops found, setting BITALIGN");
+		if (strstr(name, "Cedar") ||
+		    strstr(name, "Redwood") ||
+		    strstr(name, "Juniper") ||
+		    strstr(name, "Cypress" ) ||
+		    strstr(name, "Hemlock" ) ||
+		    strstr(name, "Caicos" ) ||
+		    strstr(name, "Turks" ) ||
+		    strstr(name, "Barts" ) ||
+		    strstr(name, "Cayman" ) ||
+		    strstr(name, "Antilles" ) ||
+		    strstr(name, "Wrestler" ) ||
+		    strstr(name, "Zacate" ) ||
+		    strstr(name, "WinterPark" ) ||
+		    strstr(name, "BeaverCreek" ))
+			patchbfi = true;
+	} else
 		applog(LOG_DEBUG, "cl_amd_media_ops not found, will not set BITALIGN");
 
 	if (patchbfi) {
 		strcat(CompilerOptions, " -D BFI_INT");
-		if (opt_debug)
-			applog(LOG_DEBUG, "BFI_INT patch requiring device found, patched source with BFI_INT");
-	} else if (opt_debug)
+		applog(LOG_DEBUG, "BFI_INT patch requiring device found, patched source with BFI_INT");
+	} else
 		applog(LOG_DEBUG, "BFI_INT patch requiring device not found, will not BFI_INT patch");
 
-	if (opt_debug)
-		applog(LOG_DEBUG, "CompilerOptions: %s", CompilerOptions);
+	applog(LOG_DEBUG, "CompilerOptions: %s", CompilerOptions);
 	status = clBuildProgram(clState->program, 1, &devices[gpu], CompilerOptions , NULL, NULL);
 	free(CompilerOptions);
 
@@ -542,31 +567,43 @@ build:
 
 	prog_built = true;
 
-	status = clGetProgramInfo( clState->program, CL_PROGRAM_BINARY_SIZES, sizeof(size_t)*numDevices, binary_sizes, NULL );
+	status = clGetProgramInfo(clState->program, CL_PROGRAM_NUM_DEVICES, sizeof(cl_uint), &cpnd, NULL);
 	if (unlikely(status != CL_SUCCESS)) {
-		applog(LOG_ERR, "Error: Getting program info CL_PROGRAM_BINARY_SIZES. (clGetPlatformInfo)");
+		applog(LOG_ERR, "Error: Getting program info CL_PROGRAM_NUM_DEVICES. (clGetProgramInfo)");
 		return NULL;
 	}
 
-	/* copy over all of the generated binaries. */
-	if (opt_debug)
-		applog(LOG_DEBUG, "binary size %d : %d", gpu, binary_sizes[gpu]);
-	if (!binary_sizes[gpu]) {
-		applog(LOG_ERR, "OpenCL compiler generated a zero sized binary, may need to reboot!");
+	status = clGetProgramInfo(clState->program, CL_PROGRAM_BINARY_SIZES, sizeof(size_t)*cpnd, binary_sizes, NULL);
+	if (unlikely(status != CL_SUCCESS)) {
+		applog(LOG_ERR, "Error: Getting program info CL_PROGRAM_BINARY_SIZES. (clGetProgramInfo)");
 		return NULL;
 	}
-	binaries[gpu] = (char *)malloc( sizeof(char)*binary_sizes[gpu]);
-	status = clGetProgramInfo( clState->program, CL_PROGRAM_BINARIES, sizeof(char *)*numDevices, binaries, NULL );
+
+	/* The actual compiled binary ends up in a RANDOM slot! Grr, so we have
+	 * to iterate over all the binary slots and find where the real program
+	 * is. What the heck is this!? */
+	for (slot = 0; slot < cpnd; slot++)
+		if (binary_sizes[slot])
+			break;
+
+	/* copy over all of the generated binaries. */
+	applog(LOG_DEBUG, "Binary size for gpu %d found in binary slot %d: %d", gpu, slot, binary_sizes[slot]);
+	if (!binary_sizes[slot]) {
+		applog(LOG_ERR, "OpenCL compiler generated a zero sized binary, FAIL!");
+		return NULL;
+	}
+	binaries[slot] = calloc(sizeof(char) * binary_sizes[slot], 1);
+	status = clGetProgramInfo(clState->program, CL_PROGRAM_BINARIES, sizeof(char *) * cpnd, binaries, NULL );
 	if (unlikely(status != CL_SUCCESS)) {
-		applog(LOG_ERR, "Error: Getting program info. (clGetPlatformInfo)");
+		applog(LOG_ERR, "Error: Getting program info. CL_PROGRAM_BINARIES (clGetProgramInfo)");
 		return NULL;
 	}
 
 	/* Patch the kernel if the hardware supports BFI_INT but it needs to
 	 * be hacked in */
 	if (patchbfi) {
-		unsigned remaining = binary_sizes[gpu];
-		char *w = binaries[gpu];
+		unsigned remaining = binary_sizes[slot];
+		char *w = binaries[slot];
 		unsigned int start, length;
 
 		/* Find 2nd incidence of .text, and copy the program's
@@ -574,7 +611,7 @@ build:
 		* back and find the 2nd incidence of \x7ELF (rewind by one
 		* from ELF) and then patch the opcocdes */
 		if (!advance(&w, &remaining, ".text"))
-			{patchbfi = 0; goto build;}
+			goto build;
 		w++; remaining--;
 		if (!advance(&w, &remaining, ".text")) {
 			/* 32 bit builds only one ELF */
@@ -582,9 +619,9 @@ build:
 		}
 		memcpy(&start, w + 285, 4);
 		memcpy(&length, w + 289, 4);
-		w = binaries[gpu]; remaining = binary_sizes[gpu];
+		w = binaries[slot]; remaining = binary_sizes[slot];
 		if (!advance(&w, &remaining, "ELF"))
-			{patchbfi = 0; goto build;}
+			goto build;
 		w++; remaining--;
 		if (!advance(&w, &remaining, "ELF")) {
 			/* 32 bit builds only one ELF */
@@ -592,9 +629,8 @@ build:
 		}
 		w--; remaining++;
 		w += start; remaining -= start;
-		if (opt_debug)
-			applog(LOG_DEBUG, "At %p (%u rem. bytes), to begin patching",
-				w, remaining);
+		applog(LOG_DEBUG, "At %p (%u rem. bytes), to begin patching",
+			w, remaining);
 		patch_opcodes(w, length);
 
 		status = clReleaseProgram(clState->program);
@@ -603,7 +639,7 @@ build:
 			return NULL;
 		}
 
-		clState->program = clCreateProgramWithBinary(clState->context, 1, &devices[gpu], &binary_sizes[gpu], (const unsigned char **)&binaries[gpu], &status, NULL);
+		clState->program = clCreateProgramWithBinary(clState->context, 1, &devices[gpu], &binary_sizes[slot], (const unsigned char **)&binaries[slot], &status, NULL);
 		if (status != CL_SUCCESS) {
 			applog(LOG_ERR, "Error: Loading Binary into cl_program (clCreateProgramWithBinary)");
 			return NULL;
@@ -625,23 +661,22 @@ build:
 	binaryfile = fopen(binaryfilename, "wb");
 	if (!binaryfile) {
 		/* Not a fatal problem, just means we build it again next time */
-		if (opt_debug)
-			applog(LOG_DEBUG, "Unable to create file %s", binaryfilename);
+		applog(LOG_DEBUG, "Unable to create file %s", binaryfilename);
 	} else {
-		if (unlikely(fwrite(binaries[gpu], 1, binary_sizes[gpu], binaryfile) != binary_sizes[gpu])) {
+		if (unlikely(fwrite(binaries[slot], 1, binary_sizes[slot], binaryfile) != binary_sizes[slot])) {
 			applog(LOG_ERR, "Unable to fwrite to binaryfile");
 			return NULL;
 		}
 		fclose(binaryfile);
 	}
-	if (binaries[gpu])
-		free(binaries[gpu]);
 built:
+	if (binaries[slot])
+		free(binaries[slot]);
 	free(binaries);
 	free(binary_sizes);
 
-	applog(LOG_INFO, "Initialising kernel %s with%s BFI_INT, %d vectors and worksize %d",
-	       filename, patchbfi ? "" : "out", clState->preferred_vwidth, clState->work_size);
+	applog(LOG_INFO, "Initialising kernel %s with%s bitalign, %d vectors and worksize %d",
+	       filename, clState->hasBitAlign ? "" : "out", clState->preferred_vwidth, clState->work_size);
 
 	if (!prog_built) {
 		/* create a cl program executable for all the devices specified */
@@ -683,7 +718,6 @@ built:
 		return NULL;
 	}
 
-	/* create a write-only OpenCL output buffer, because the kernel only writes into it */
 	clState->outputBuffer = clCreateBuffer(clState->context, CL_MEM_WRITE_ONLY, BUFFERSIZE, NULL, &status);
 	if (status != CL_SUCCESS) {
 		applog(LOG_ERR, "Error: clCreateBuffer (outputBuffer)");

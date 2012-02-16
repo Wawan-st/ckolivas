@@ -119,6 +119,8 @@ Usage instructions:  Run "cgminer --help" to see options:
 
 Usage: . [-atDdGCgIKklmpPQqrRsTouvwOchnV] 
 Options for both config file and command line:
+--api-allow         Allow API access (if enabled) only to the given list of IP[/Prefix] address[/subnets]
+                    This overrides --api-network and you must specify 127.0.0.1 if it is required
 --api-description   Description placed in the API status header (default: cgminer version)
 --api-listen        Listen for API requests (default: disabled)
 --api-network       Allow API (if enabled) to listen on/for any address (default: only 127.0.0.1)
@@ -151,6 +153,7 @@ Options for both config file and command line:
 --socks-proxy <arg> Set socks4 proxy (host:port)
 --submit-stale      Submit shares even if they would normally be considered stale
 --syslog            Use system log for output messages (default: standard error)
+--temp-cutoff <arg> Temperature where a device will be automatically disabled, one value or comma separated list (default: 95)
 --text-only|-T      Disable ncurses formatted screen output
 --url|-o <arg>      URL for bitcoin JSON-RPC server
 --user|-u <arg>     Username for bitcoin JSON-RPC server
@@ -170,6 +173,7 @@ GPU only options:
 --device|-d <arg>   Select device to use, (Use repeat -d for multiple devices, default: all)
 --disable-gpu|-G    Disable GPU mining even if suitable devices exist
 --gpu-threads|-g <arg> Number of threads per GPU (1 - 10) (default: 2)
+--gpu-dyninterval <arg> Set the refresh interval in ms for GPUs using dynamic intensity (default: 7)
 --gpu-engine <arg>  GPU engine (over)clock range in Mhz - one value, range and/or comma separated list (e.g. 850-900,900,750-850)
 --gpu-fan <arg>     GPU fan percentage range - one value, range and/or comma separated list (e.g. 25-85,85,65)
 --gpu-memclock <arg> Set the GPU memory (over)clock in Mhz - one value for all or separate by commas for per card.
@@ -181,7 +185,6 @@ GPU only options:
 --kernel-path|-K <arg> Specify a path to where the kernel .cl files are (default: "/usr/local/bin")
 --kernel|-k <arg>   Select kernel to use (poclbm or phatk - default: auto)
 --no-restart        Do not attempt to restart GPUs that hang
---temp-cutoff <arg> Temperature where a GPU device will be automatically disabled, one value or comma separated list (default: 95)
 --temp-hysteresis <arg> Set how much the temperature can fluctuate outside limits when automanaging speeds (default: 3)
 --temp-overheat <arg> Overheat temperature when automatically managing fan and GPU speeds (default: 85)
 --temp-target <arg> Target temperature when automatically managing fan and GPU speeds (default: 75)
@@ -526,15 +529,24 @@ cgminer shuts down because of this.
 
 ---
 
-API
+RPC API
 
 If you start cgminer with the "--api-listen" option, it will listen on a
 simple TCP/IP socket for single string API requests from the same machine
 running cgminer and reply with a string and then close the socket each time
-Also, if you add the "--api-network" option, it will accept API requests
-from any network attached computer.
+If you add the "--api-network" option, it will accept API requests from any
+network attached computer.
 
-The request can be either simple text or JSON.
+You can specify IP addresses/prefixes that are only allowed to access the API
+with the "--api-access" option e.g. --api-access 192.168.0.1,10.0.0/24
+will allow 192.168.0.1 or any address matching 10.0.0.*, but nothing else
+IP addresses are automatically padded with extra '.0's as needed
+Without a /prefix is the same as specifying /32
+Using the "--api-access" option overides the "--api-network" option if they
+are both specified
+With "--api-access", 127.0.0.1 is not by default given access unless specified
+
+The RPC API request can be either simple text or JSON.
 
 If the request is JSON (starts with '{'), it will reply with a JSON formatted
 response, otherwise it replies with text formatted as described further below.
@@ -544,7 +556,7 @@ The JSON request format required is '{"command":"CMD","parameter":"PARAM"}'
 where "CMD" is from the "Request" column below and "PARAM" would be e.g.
 the CPU/GPU number if required.
 
-An example request in both formats:
+An example request in both formats to set GPU 0 fan to 80%:
   gpufan|0,80
   {"command":"gpufan","parameter":"0,80"}
 
@@ -652,6 +664,9 @@ The list of requests and replies are:
 When you enable, disable or restart a GPU, you will also get Thread messages in
 the cgminer status window
 
+When you switch to a different pool to the current one, you will get a
+'Switching to URL' message in the cgminer status windows
+
 Obviously, the JSON format is simply just the names as given before the '='
 with the values after the '='
 
@@ -715,7 +730,9 @@ Q: The CPU usage is high.
 A: The ATI drivers after 11.6 have a bug that makes them consume 100% of one
 CPU core unnecessarily so downgrade to 11.6. Binding cgminer to one CPU core on
 windows can minimise it to 100% (instead of more than one core). Driver version
-11.11 on linux and 11.12 on windows appear to have fixed this issue.
+11.11 on linux and 11.12 on windows appear to have fixed this issue. Note that
+later drivers may have an apparent return of high CPU usage. Try
+'export GPU_USE_SYNC_OBJECTS=1' on Linux before starting cgminer.
 
 Q: Can you implement feature X?
 A: I can, but time is limited, and people who donate are more likely to get
@@ -765,7 +782,8 @@ before adjusting automatically.
 Q: The fanspeed starts at 85% with --auto-fan. Can I set it lower?
 A: The initial fanspeed will always start at 85% unless you choose your own
 value with --gpu-fan. In this case it will use the value you give it with
---gpu-fan as the first fanspeed.
+--gpu-fan as the first fanspeed, but it will also use this as the maximum fan
+speed unless overheat is detected.
 
 Q: Why is my efficiency above/below 100%?
 A: Efficiency simply means how many shares you return for the amount of work
@@ -796,11 +814,7 @@ this time.
 
 Q: Which ATI SDK is the best for cgminer?
 A: At the moment, versions 2.4 and 2.5 work the best. If you are forced to use
-the 2.6 SDK, -v 1 -w 64 might help, along with not decreasing your memory clock
-speed.
-
-Q: ATI 79XX support?
-A: Work in progress. Still needs a lot of work to get a good hashrate.
+the 2.6 SDK, -v 1 might help, along with not decreasing your memory clock speed.
 
 Q: GUI version?
 A: No. The RPC interface makes it possible for someone else to write one
@@ -810,6 +824,22 @@ Q: I'm having an issue. What debugging information should I provide?
 A: Start cgminer with your regular commands and add -D -T --verbose and provide
 the full startup output and a summary of your hardware, operating system, ATI
 driver version and ATI stream version.
+
+Q: cgminer reports no devices or only one device on startup on Linux although
+I have multiple devices and drivers+SDK installed properly?
+A: Try 'export DISPLAY=:0" before running cgminer.
+
+Q: My network gets slower and slower and then dies for a minute?
+A; Try the --net-delay option.
+
+Q: How do I tune for p2pool?
+A: p2pool has very rapid expiration of work and new blocks, it is suggested you
+decrease intensity by 1 from your optimal value, and decrease GPU threads to 1
+with -g 1.
+
+Q: Are kernels from other mining software useable in cgminer?
+A: No, the APIs are slightly different between the different software and they
+will not work.
 
 ---
 

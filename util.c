@@ -34,6 +34,7 @@
 #endif
 #include "miner.h"
 #include "elist.h"
+#include "compat.h"
 
 #if JANSSON_MAJOR_VERSION >= 2
 #define JSON_LOADS(str, err_ptr) json_loads((str), 0, (err_ptr))
@@ -57,73 +58,13 @@ struct upload_buffer {
 struct header_info {
 	char		*lp_path;
 	bool		has_rolltime;
+	char		*reason;
 };
 
 struct tq_ent {
 	void			*data;
 	struct list_head	q_node;
 };
-
-void vapplog(int prio, const char *fmt, va_list ap)
-{
-	extern bool use_curses;
-
-#ifdef HAVE_SYSLOG_H
-	if (use_syslog) {
-		vsyslog(prio, fmt, ap);
-	}
-#else
-	if (0) {}
-#endif
-	else if (opt_log_output || prio <= LOG_NOTICE) {
-		char *f;
-		int len;
-		struct timeval tv = { };
-		struct tm *tm;
-
-		gettimeofday(&tv, NULL);
-
-		tm = localtime(&tv.tv_sec);
-
-		len = 40 + strlen(fmt) + 22;
-		f = alloca(len);
-		sprintf(f, "[%d-%02d-%02d %02d:%02d:%02d] %s\n",
-			tm->tm_year + 1900,
-			tm->tm_mon + 1,
-			tm->tm_mday,
-			tm->tm_hour,
-			tm->tm_min,
-			tm->tm_sec,
-			fmt);
-		/* Only output to stderr if it's not going to the screen as well */
-		if (!isatty(fileno((FILE *)stderr))) {
-			va_list apc;
-
-			va_copy(apc, ap);
-			vfprintf(stderr, f, apc);	/* atomic write to stderr */
-			fflush(stderr);
-		}
-
-		if (use_curses)
-			log_curses(prio, f, ap);
-		else {
-			int len = strlen(f);
-
-			strcpy(f + len - 1, "                    \n");
-
-			log_curses(prio, f, ap);
-		}
-	}
-}
-
-void applog(int prio, const char *fmt, ...)
-{
-	va_list ap;
-
-	va_start(ap, fmt);
-	vapplog(prio, fmt, ap);
-	va_end(ap);
-}
 
 static void databuf_free(struct data_buffer *db)
 {
@@ -163,7 +104,7 @@ static size_t upload_data_cb(void *ptr, size_t size, size_t nmemb,
 			     void *user_data)
 {
 	struct upload_buffer *ub = user_data;
-	int len = size * nmemb;
+	unsigned int len = size * nmemb;
 
 	if (len > ub->len)
 		len = ub->len;
@@ -218,17 +159,20 @@ static size_t resp_hdr_cb(void *ptr, size_t size, size_t nmemb, void *user_data)
 
 	if (!strcasecmp("X-Roll-Ntime", key)) {
 		if (!strncasecmp("N", val, 1)) {
-			if (opt_debug)
-				applog(LOG_DEBUG, "X-Roll-Ntime: N found");
+			applog(LOG_DEBUG, "X-Roll-Ntime: N found");
 		} else {
-			if (opt_debug)
-				applog(LOG_DEBUG, "X-Roll-Ntime found");
+			applog(LOG_DEBUG, "X-Roll-Ntime found");
 			hi->has_rolltime = true;
 		}
 	}
 
 	if (!strcasecmp("X-Long-Polling", key)) {
 		hi->lp_path = val;	/* steal memory reference */
+		val = NULL;
+	}
+
+	if (!strcasecmp("X-Reject-Reason", key)) {
+		hi->reason = val;	/* steal memory reference */
 		val = NULL;
 	}
 
@@ -242,12 +186,12 @@ out:
 int json_rpc_call_sockopt_cb(void __maybe_unused *userdata, curl_socket_t fd,
 			     curlsocktype __maybe_unused purpose)
 {
-	int keepalive = 1;
-	int tcp_keepcnt = 5;
 	int tcp_keepidle = 120;
 	int tcp_keepintvl = 120;
 
 #ifndef WIN32
+	int keepalive = 1;
+	int tcp_keepcnt = 5;
 
 	if (unlikely(setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &keepalive, sizeof(keepalive))))
 		return 1;
@@ -310,15 +254,17 @@ json_t *json_rpc_call(CURL *curl, const char *url,
 {
 	json_t *val, *err_val, *res_val;
 	int rc;
-	struct data_buffer all_data = { };
+	struct data_buffer all_data = {NULL, 0};
 	struct upload_buffer upload_data;
-	json_error_t err = { };
+	json_error_t err;
 	struct curl_slist *headers = NULL;
 	char len_hdr[64], user_agent_hdr[128];
 	char curl_err_str[CURL_ERROR_SIZE];
 	long timeout = longpoll ? (60 * 60) : 60;
-	struct header_info hi = { };
+	struct header_info hi = {NULL, false, NULL};
 	bool probing = false;
+
+	memset(&err, 0, sizeof(err));
 
 	/* it is assumed that 'curl' is freshly [re]initialized at this pt */
 
@@ -411,8 +357,7 @@ json_t *json_rpc_call(CURL *curl, const char *url,
 	}
 
 	if (!all_data.buf) {
-		if (opt_debug)
-			applog(LOG_DEBUG, "Empty data received in json_rpc_call.");
+		applog(LOG_DEBUG, "Empty data received in json_rpc_call.");
 		goto err_out;
 	}
 
@@ -465,6 +410,9 @@ json_t *json_rpc_call(CURL *curl, const char *url,
 		goto err_out;
 	}
 
+	if (hi.reason)
+		json_object_set_new(val, "reject-reason", json_string(hi.reason));
+
 	successful_connect = true;
 	databuf_free(&all_data);
 	curl_slist_free_all(headers);
@@ -483,8 +431,9 @@ err_out:
 
 char *bin2hex(const unsigned char *p, size_t len)
 {
-	int i;
+	unsigned int i;
 	char *s = malloc((len * 2) + 1);
+
 	if (!s)
 		return NULL;
 

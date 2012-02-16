@@ -10,6 +10,7 @@
 #include <limits.h>
 #include <pthread.h>
 #include <stdio.h>
+#include <strings.h>
 #include <sys/time.h>
 #include <sys/types.h>
 #include <dirent.h>
@@ -32,24 +33,36 @@
 
 struct device_api bitforce_api;
 
-#ifdef WIN32
-
 static int BFopen(const char *devpath)
 {
+#ifdef WIN32
 	HANDLE hSerial = CreateFile(devpath, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
 	if (unlikely(hSerial == INVALID_HANDLE_VALUE))
 		return -1;
+	
+	COMMTIMEOUTS cto = {30000, 0, 30000, 0, 30000};
+	SetCommTimeouts(hSerial, &cto);
+	
 	return _open_osfhandle((LONG)hSerial, 0);
-}
-
 #else
-
-static int BFopen(const char *devpath)
-{
-	return open(devpath, O_RDWR | O_CLOEXEC | O_NOCTTY);
-}
-
+	int fdDev = open(devpath, O_RDWR | O_CLOEXEC | O_NOCTTY);
+	if (likely(fdDev != -1))
+	{
+		struct termios pattr;
+		
+		tcgetattr(fdDev, &pattr);
+		pattr.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON);
+		pattr.c_oflag &= ~OPOST;
+		pattr.c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
+		pattr.c_cflag &= ~(CSIZE | PARENB);
+		pattr.c_cflag |= CS8;
+		tcsetattr(fdDev, TCSANOW, &pattr);
+	}
+	tcflush(fdDev, TCOFLUSH);
+	tcflush(fdDev, TCIFLUSH);
+	return fdDev;
 #endif
+}
 
 static void BFgets(char *buf, size_t bufLen, int fd)
 {
@@ -60,9 +73,10 @@ static void BFgets(char *buf, size_t bufLen, int fd)
 	buf[0] = '\0';
 }
 
-static void BFwrite(int fd, const void *buf, size_t bufLen)
+static void BFwrite(int fd, const void *buf, ssize_t bufLen)
 {
 	ssize_t ret = write(fd, buf, bufLen);
+
 	if (unlikely(ret != bufLen))
 		quit(1, "BFwrite failed");
 }
@@ -72,7 +86,7 @@ static void BFwrite(int fd, const void *buf, size_t bufLen)
 static bool bitforce_detect_one(const char *devpath)
 {
 	char pdevbuf[0x100];
-	int i = 0;
+	static int i = 0;
 
 	if (total_devices == MAX_DEVICES)
 		return false;
@@ -137,13 +151,32 @@ static void bitforce_detect_auto()
 static void bitforce_detect()
 {
 	struct string_elist *iter, *tmp;
+	bool found = false;
+	bool autoscan = false;
 
 	list_for_each_entry_safe(iter, tmp, &scan_devices, list) {
+		if (!strcmp(iter->string, "auto"))
+			autoscan = true;
+		else
 		if (bitforce_detect_one(iter->string))
+		{
 			string_elist_del(iter);
+			found = true;
+		}
 	}
 
-	bitforce_detect_auto();
+	if (autoscan || !found)
+		bitforce_detect_auto();
+}
+
+static void get_bitforce_statline_before(char *buf, struct cgpu_info *bitforce)
+{
+	float gt = bitforce->temp;
+	if (gt > 0)
+		tailsprintf(buf, "%5.1fC ", gt);
+	else
+		tailsprintf(buf, "       ", gt);
+	tailsprintf(buf, "        | ");
 }
 
 static bool bitforce_thread_prepare(struct thr_info *thr)
@@ -159,19 +192,6 @@ static bool bitforce_thread_prepare(struct thr_info *thr)
 		return false;
 	}
 
-#ifndef WIN32
-	{
-		struct termios pattr;
-
-		tcgetattr(fdDev, &pattr);
-		pattr.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON);
-		pattr.c_oflag &= ~OPOST;
-		pattr.c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
-		pattr.c_cflag &= ~(CSIZE | PARENB);
-		pattr.c_cflag |= CS8;
-		tcsetattr(fdDev, TCSANOW, &pattr);
-	}
-#endif
 	bitforce->device_fd = fdDev;
 
 	applog(LOG_INFO, "Opened BitForce on %s", bitforce->device_path);
@@ -181,7 +201,7 @@ static bool bitforce_thread_prepare(struct thr_info *thr)
 	return true;
 }
 
-static uint64_t bitforce_scanhash(struct thr_info *thr, struct work *work, uint64_t max_nonce)
+static uint64_t bitforce_scanhash(struct thr_info *thr, struct work *work, uint64_t __maybe_unused max_nonce)
 {
 	struct cgpu_info *bitforce = thr->cgpu;
 	int fdDev = bitforce->device_fd;
@@ -219,6 +239,23 @@ static uint64_t bitforce_scanhash(struct thr_info *thr, struct work *work, uint6
 	{
 		applog(LOG_ERR, "BitForce block data reports: %s", pdevbuf);
 		return 0;
+	}
+
+	BFwrite(fdDev, "ZKX", 3);
+	BFgets(pdevbuf, sizeof(pdevbuf), fdDev);
+	if (unlikely(!pdevbuf[0])) {
+		applog(LOG_ERR, "Error reading from BitForce (ZKX)");
+		return 0;
+	}
+	if (!strncasecmp(pdevbuf, "TEMP:", 5)) {
+		float temp = strtof(pdevbuf + 5, NULL);
+		if (temp > 0) {
+			bitforce->temp = temp;
+			if (temp > bitforce->cutofftemp) {
+				applog(LOG_WARNING, "Hit thermal cutoff limit on %s %d, disabling!", bitforce->api->name, bitforce->device_id);
+				bitforce->enabled = false;
+			}
+		}
 	}
 
 	usleep(4500000);
@@ -266,7 +303,7 @@ static uint64_t bitforce_scanhash(struct thr_info *thr, struct work *work, uint6
 struct device_api bitforce_api = {
 	.name = "BFL",
 	.api_detect = bitforce_detect,
-	// .reinit_device = TODO
+	.get_statline_before = get_bitforce_statline_before,
 	.thread_prepare = bitforce_thread_prepare,
 	.scanhash = bitforce_scanhash,
 };

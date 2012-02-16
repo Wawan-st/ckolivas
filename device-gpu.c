@@ -26,7 +26,7 @@
 
 #include "compat.h"
 #include "miner.h"
-#include "device-cpu.h"
+#include "device-gpu.h"
 #include "findnonce.h"
 #include "ocl.h"
 #include "adl.h"
@@ -57,6 +57,12 @@ extern void decay_time(double *f, double fadd);
 
 
 /**********************************************/
+
+#ifdef HAVE_ADL
+extern float gpu_temp(int gpu);
+extern int gpu_fanspeed(int gpu);
+extern int gpu_fanpercent(int gpu);
+#endif
 
 
 #ifdef HAVE_OPENCL
@@ -269,39 +275,6 @@ char *set_gpu_vddc(char *arg)
 	return NULL;
 }
 
-char *set_temp_cutoff(char *arg)
-{
-	int i, val = 0, device = 0, *tco;
-	char *nextptr;
-
-	nextptr = strtok(arg, ",");
-	if (nextptr == NULL)
-		return "Invalid parameters for set temp cutoff";
-	val = atoi(nextptr);
-	if (val < 0 || val > 200)
-		return "Invalid value passed to set temp cutoff";
-
-	tco = &gpus[device++].adl.cutofftemp;
-	*tco = val;
-
-	while ((nextptr = strtok(NULL, ",")) != NULL) {
-		val = atoi(nextptr);
-		if (val < 0 || val > 200)
-			return "Invalid value passed to set temp cutoff";
-
-		tco = &gpus[device++].adl.cutofftemp;
-		*tco = val;
-	}
-	if (device == 1) {
-		for (i = device; i < MAX_GPUDEVICES; i++) {
-			tco = &gpus[i].adl.cutofftemp;
-			*tco = val;
-		}
-	}
-
-	return NULL;
-}
-
 char *set_temp_overheat(char *arg)
 {
 	int i, val = 0, device = 0, *to;
@@ -452,6 +425,11 @@ void pause_dynamic_threads(int gpu)
 			continue;
 		if (!thread_no++)
 			continue;
+		if (!thr->pause && cgpu->dynamic) {
+			applog(LOG_WARNING, "Disabling extra threads due to dynamic mode.");
+			applog(LOG_WARNING, "Tune dynamic intensity with --gpu-dyninterval");
+		}
+
 		thr->pause = cgpu->dynamic;
 		if (!cgpu->dynamic && cgpu->enabled)
 			tq_push(thr->q, &ping);
@@ -586,8 +564,7 @@ retry:
 				gpus[selected].enabled = false;
 				goto retry;
 			}
-			if (opt_debug)
-				applog(LOG_DEBUG, "Pushing ping to thread %d", thr->id);
+			applog(LOG_DEBUG, "Pushing ping to thread %d", thr->id);
 
 			tq_push(thr->q, &ping);
 		}
@@ -679,9 +656,11 @@ static _clState *clStates[MAX_GPUDEVICES];
 
 static cl_int queue_poclbm_kernel(_clState *clState, dev_blk_ctx *blk)
 {
+	cl_uint vwidth = clState->preferred_vwidth;
 	cl_kernel *kernel = &clState->kernel;
+	unsigned int i, num = 0;
 	cl_int status = 0;
-	int num = 0;
+	uint *nonces;
 
 	CL_SET_BLKARG(ctx_a);
 	CL_SET_BLKARG(ctx_b);
@@ -691,13 +670,19 @@ static cl_int queue_poclbm_kernel(_clState *clState, dev_blk_ctx *blk)
 	CL_SET_BLKARG(ctx_f);
 	CL_SET_BLKARG(ctx_g);
 	CL_SET_BLKARG(ctx_h);
+
 	CL_SET_BLKARG(cty_b);
 	CL_SET_BLKARG(cty_c);
-	CL_SET_BLKARG(cty_d);
+
+	
 	CL_SET_BLKARG(cty_f);
 	CL_SET_BLKARG(cty_g);
 	CL_SET_BLKARG(cty_h);
-	CL_SET_BLKARG(nonce);
+
+	nonces = alloca(sizeof(uint) * vwidth);
+	for (i = 0; i < vwidth; i++)
+		nonces[i] = blk->nonce + i;
+	CL_SET_VARG(vwidth, nonces);
 
 	CL_SET_BLKARG(fW0);
 	CL_SET_BLKARG(fW1);
@@ -705,8 +690,15 @@ static cl_int queue_poclbm_kernel(_clState *clState, dev_blk_ctx *blk)
 	CL_SET_BLKARG(fW3);
 	CL_SET_BLKARG(fW15);
 	CL_SET_BLKARG(fW01r);
-	CL_SET_BLKARG(fcty_e);
+
 	CL_SET_BLKARG(fcty_e2);
+	CL_SET_BLKARG(D1A);
+	CL_SET_BLKARG(C1addK5);
+	CL_SET_BLKARG(B1addK6);
+	CL_SET_BLKARG(W16addK16);
+	CL_SET_BLKARG(W17addK17);
+	CL_SET_BLKARG(PreVal4addT1);
+	CL_SET_BLKARG(PreVal0);
 
 	CL_SET_ARG(clState->outputBuffer);
 
@@ -717,8 +709,8 @@ static cl_int queue_phatk_kernel(_clState *clState, dev_blk_ctx *blk)
 {
 	cl_uint vwidth = clState->preferred_vwidth;
 	cl_kernel *kernel = &clState->kernel;
+	unsigned int i, num = 0;
 	cl_int status = 0;
-	int i, num = 0;
 	uint *nonces;
 
 	CL_SET_BLKARG(ctx_a);
@@ -760,8 +752,8 @@ static cl_int queue_diakgcn_kernel(_clState *clState, dev_blk_ctx *blk)
 {
 	cl_uint vwidth = clState->preferred_vwidth;
 	cl_kernel *kernel = &clState->kernel;
+	unsigned int i, num = 0;
 	cl_int status = 0;
-	int i, num = 0;
 	uint *nonces;
 
 	nonces = alloca(sizeof(uint) * vwidth);
@@ -769,10 +761,10 @@ static cl_int queue_diakgcn_kernel(_clState *clState, dev_blk_ctx *blk)
 		nonces[i] = blk->nonce + i;
 	CL_SET_VARG(vwidth, nonces);
 
+	CL_SET_BLKARG(PreVal0);
 	CL_SET_BLKARG(PreVal4_2);
 	CL_SET_BLKARG(cty_h);
-	CL_SET_BLKARG(cty_d);
-	CL_SET_BLKARG(PreVal0);
+	CL_SET_BLKARG(D1A);
 	CL_SET_BLKARG(cty_b);
 	CL_SET_BLKARG(cty_c);
 	CL_SET_BLKARG(cty_f);
@@ -798,8 +790,48 @@ static cl_int queue_diakgcn_kernel(_clState *clState, dev_blk_ctx *blk)
 	CL_SET_BLKARG(ctx_g);
 	CL_SET_BLKARG(ctx_h);
 
-	CL_SET_BLKARG(A0);
-	CL_SET_BLKARG(B0);
+	CL_SET_BLKARG(zeroA);
+	CL_SET_BLKARG(zeroB);
+
+	CL_SET_ARG(clState->outputBuffer);
+
+	return status;
+}
+
+static cl_int queue_diablo_kernel(_clState *clState, dev_blk_ctx *blk)
+{
+	cl_kernel *kernel = &clState->kernel;
+	cl_int status = 0;
+	int num = 0;
+
+	CL_SET_BLKARG(nonce);
+	CL_SET_BLKARG(PreVal0);
+	CL_SET_BLKARG(PreVal4_2);
+	CL_SET_BLKARG(PreW18);
+	CL_SET_BLKARG(PreW19);
+	CL_SET_BLKARG(W16);
+	CL_SET_BLKARG(W17);
+	CL_SET_BLKARG(PreW31);
+	CL_SET_BLKARG(PreW32);
+
+	CL_SET_BLKARG(cty_d);
+	CL_SET_BLKARG(cty_b);
+	CL_SET_BLKARG(cty_c);
+	CL_SET_BLKARG(cty_h);
+	CL_SET_BLKARG(cty_f);
+	CL_SET_BLKARG(cty_g);
+
+	CL_SET_BLKARG(C1addK5);
+	CL_SET_BLKARG(B1addK6);
+
+	CL_SET_BLKARG(ctx_a);
+	CL_SET_BLKARG(ctx_b);
+	CL_SET_BLKARG(ctx_c);
+	CL_SET_BLKARG(ctx_d);
+	CL_SET_BLKARG(ctx_e);
+	CL_SET_BLKARG(ctx_f);
+	CL_SET_BLKARG(ctx_g);
+	CL_SET_BLKARG(ctx_h);
 
 	CL_SET_ARG(clState->outputBuffer);
 
@@ -957,12 +989,17 @@ static void opencl_detect()
 		return;
 
 	if (opt_kernel) {
-		if (strcmp(opt_kernel, "poclbm") && strcmp(opt_kernel, "phatk") && strcmp(opt_kernel, "diakgcn"))
-			quit(1, "Invalid kernel name specified - must be poclbm, phatk or diakgcn");
+		if (strcmp(opt_kernel, "poclbm") &&
+		    strcmp(opt_kernel, "phatk") &&
+		    strcmp(opt_kernel, "diakgcn") &&
+		    strcmp(opt_kernel, "diablo"))
+			quit(1, "Invalid kernel name specified - must be poclbm or phatk");
 		if (!strcmp(opt_kernel, "diakgcn"))
 			chosen_kernel = KL_DIAKGCN;
 		else if (!strcmp(opt_kernel, "poclbm"))
 			chosen_kernel = KL_POCLBM;
+		else if (!strcmp(opt_kernel, "diablo"))
+			chosen_kernel = KL_DIABLO;
 		else
 			chosen_kernel = KL_PHATK;
 	} else
@@ -1100,6 +1137,9 @@ static bool opencl_thread_init(struct thr_info *thr)
 		case KL_DIAKGCN:
 			thrdata->queue_kernel_parameters = &queue_diakgcn_kernel;
 			break;
+		case KL_DIABLO:
+			thrdata->queue_kernel_parameters = &queue_diablo_kernel;
+			break;
 	}
 
 	thrdata->res = calloc(BUFFERSIZE, 1);
@@ -1141,6 +1181,8 @@ static bool opencl_prepare_work(struct thr_info __maybe_unused *thr, struct work
 	return true;
 }
 
+extern int opt_dynamic_interval;
+
 static uint64_t opencl_scanhash(struct thr_info *thr, struct work *work,
 				uint64_t __maybe_unused max_nonce)
 {
@@ -1174,17 +1216,18 @@ static uint64_t opencl_scanhash(struct thr_info *thr, struct work *work,
 		/* Try to not let the GPU be out for longer than 6ms, but
 		 * increase intensity when the system is idle, unless
 		 * dynamic is disabled. */
-		if (gpu_ms_average > 7) {
+		if (gpu_ms_average > opt_dynamic_interval) {
 			if (gpu->intensity > MIN_INTENSITY)
 				--gpu->intensity;
-		} else if (gpu_ms_average < 3) {
+		} else if (gpu_ms_average < ((opt_dynamic_interval / 2) ? : 1)) {
 			if (gpu->intensity < MAX_INTENSITY)
 				++gpu->intensity;
 		}
 	}
 	set_threads_hashes(clState->preferred_vwidth, &threads, &hashes, globalThreads,
 			   localThreads[0], gpu->intensity);
-
+	if (hashes > gpu->max_hashes)
+		gpu->max_hashes = hashes;
 	status = thrdata->queue_kernel_parameters(clState, &work->blk);
 	if (unlikely(status != CL_SUCCESS)) {
 		applog(LOG_ERR, "Error: clSetKernelArg of all params failed.");
@@ -1201,13 +1244,11 @@ static uint64_t opencl_scanhash(struct thr_info *thr, struct work *work,
 			return 0;
 		}
 		if (unlikely(thrdata->last_work)) {
-			if (opt_debug)
-				applog(LOG_DEBUG, "GPU %d found something in last work?", gpu->device_id);
+			applog(LOG_DEBUG, "GPU %d found something in last work?", gpu->device_id);
 			postcalc_hash_async(thr, thrdata->last_work, thrdata->res);
 			thrdata->last_work = NULL;
 		} else {
-			if (opt_debug)
-				applog(LOG_DEBUG, "GPU %d found something?", gpu->device_id);
+			applog(LOG_DEBUG, "GPU %d found something?", gpu->device_id);
 			postcalc_hash_async(thr, work, thrdata->res);
 		}
 		memset(thrdata->res, 0, BUFFERSIZE);
@@ -1227,7 +1268,10 @@ static uint64_t opencl_scanhash(struct thr_info *thr, struct work *work,
 		return 0;
 	}
 
-	work->blk.nonce += hashes;
+	/* The amount of work scanned can fluctuate when intensity changes
+	 * and since we do this one cycle behind, we increment the work more
+	 * than enough to prevent repeating work */
+	work->blk.nonce += gpu->max_hashes;
 
 	return hashes;
 }

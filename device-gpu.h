@@ -12,7 +12,6 @@ extern char *set_gpu_memclock(char *arg);
 extern char *set_gpu_memdiff(char *arg);
 extern char *set_gpu_powertune(char *arg);
 extern char *set_gpu_vddc(char *arg);
-extern char *set_temp_cutoff(char *arg);
 extern char *set_temp_overheat(char *arg);
 extern char *set_temp_target(char *arg);
 extern char *set_intensity(char *arg);
@@ -21,6 +20,7 @@ void manage_gpu(void);
 extern void pause_dynamic_threads(int gpu);
 
 extern bool have_opencl;
+extern int opt_platform_id;
 
 extern struct device_api opencl_api;
 
