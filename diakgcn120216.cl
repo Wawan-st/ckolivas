@@ -61,27 +61,27 @@ __kernel
 
 #ifdef VECTORS8
 	#ifdef GOFFSET
-		u nonce = ((uint)get_global_id(0) << 3) + (u)(0, 1, 2, 3, 4, 5, 6, 7);
+		const u nonce = ((uint)get_global_id(0) << 3) + (u)(0, 1, 2, 3, 4, 5, 6, 7);
 	#else
-		u nonce = ((uint)get_group_id(0) * (uint)get_local_size(0) << 3) + ((uint)get_local_id(0) << 3) + base;
+		const u nonce = ((uint)get_group_id(0) * (uint)get_local_size(0) << 3) + ((uint)get_local_id(0) << 3) + base;
 	#endif
 #elif defined VECTORS4
 	#ifdef GOFFSET
-		u nonce = ((uint)get_global_id(0) << 2) + (u)(0, 1, 2, 3);
+		const u nonce = ((uint)get_global_id(0) << 2) + (u)(0, 1, 2, 3);
 	#else
-		u nonce = ((uint)get_group_id(0) * (uint)get_local_size(0) << 2) + ((uint)get_local_id(0) << 2) + base;
+		const u nonce = ((uint)get_group_id(0) * (uint)get_local_size(0) << 2) + ((uint)get_local_id(0) << 2) + base;
 	#endif
 #elif defined VECTORS2
 	#ifdef GOFFSET
-		u nonce = ((uint)get_global_id(0) << 1) + (u)(0, 1);
+		const u nonce = ((uint)get_global_id(0) << 1) + (u)(0, 1);
 	#else
-		u nonce = ((uint)get_group_id(0) * (uint)get_local_size(0) << 1) + ((uint)get_local_id(0) << 1) + base;
+		const u nonce = ((uint)get_group_id(0) * (uint)get_local_size(0) << 1) + ((uint)get_local_id(0) << 1) + base;
 	#endif
 #else
 	#ifdef GOFFSET
-		u nonce = (uint)get_global_id(0);
+		const u nonce = (uint)get_global_id(0);
 	#else
-		u nonce = ((uint)get_group_id(0) * (uint)get_local_size(0)) + (uint)get_local_id(0) + base;
+		const u nonce = ((uint)get_group_id(0) * (uint)get_local_size(0)) + (uint)get_local_id(0) + base;
 	#endif
 #endif
 
@@ -344,9 +344,9 @@ __kernel
 	W[7] = state7 + V[7];
 
 	// 0x98c7e2a2 + W[0]
-	u state0AaddV0 = state0A + V[0];
+	const u state0AaddV0 = state0A + V[0];
 	// 0xfc08884d + W[0]
-	u state0BaddV0 = state0B + V[0];
+	const u state0BaddV0 = state0B + V[0];
 
 	V[2] = 0x3c6ef372 + (V[6] = 0x90bb1e3c + W[1] + ch(state0AaddV0, 0x510e527fU, 0x9b05688cU) + rotr26(state0AaddV0));
 	V[6] += rotr30(state0BaddV0) + ma(0x6a09e667U, 0xbb67ae85U, state0BaddV0);
