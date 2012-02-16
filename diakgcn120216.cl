@@ -105,7 +105,7 @@ __kernel
 	V[1] += rotr30(V[2]) + Ma(V[3], V[4], V[2]);
 
 	V[4] += nonce + PreVal0addK7 + Ch(V[5], V[6], V[7]) + rotr26(V[5]);
-	V[0] =  nonce + PreVal0addK7 + Ch(V[5], V[6], V[7]) + rotr26(V[5]) +rotr30(V[1]) + Ma(V[2], V[3], V[1]);
+	V[0] =  nonce + PreVal0addK7 + Ch(V[5], V[6], V[7]) + rotr26(V[5]) + rotr30(V[1]) + Ma(V[2], V[3], V[1]);
 
 	V[3] += 0xd807aa98 + V[7] + Ch(V[4], V[5], V[6]) + rotr26(V[4]);
 	V[7] =  0xd807aa98 + V[7] + Ch(V[4], V[5], V[6]) + rotr26(V[4]) + rotr30(V[0]) + Ma(V[1], V[2], V[0]);
