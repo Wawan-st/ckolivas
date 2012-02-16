@@ -91,7 +91,7 @@ __kernel
 	V[0] = PreVal0 + nonce;
 	V[4] = PreVal4 + nonce;
 
-	V[7] = H1 + (V[3] = D1 + Ch(V[0], B1, C1) + rotr26(V[0]));
+	V[7] = H1 + (V[3] = D1A + Ch(V[0], B1, C1) + rotr26(V[0]));
 	V[3] += rotr30(V[4]) + Ma(F1, G1, V[4]);
 
 	V[6] = G1 + (V[2] = C1addK5 + Ch(V[7], V[0], B1) + rotr26(V[7]));
