@@ -88,15 +88,16 @@ __kernel
 	#endif
 #endif
 
+	V[0] = PreVal0 + nonce;
 	V[4] = PreVal4 + nonce;
 
-	V[7] = H1 + (V[3] = D1A + Ch((PreVal0 + nonce), B1, C1) + rotr26(PreVal0 + nonce));
+	V[7] = H1 + (V[3] = D1 + Ch(V[0], B1, C1) + rotr26(V[0]));
 	V[3] += rotr30(V[4]) + Ma(F1, G1, V[4]);
 
-	V[6] = G1 + (V[2] = C1addK5 + Ch(V[7], (PreVal0 + nonce), B1) + rotr26(V[7]));
+	V[6] = G1 + (V[2] = C1addK5 + Ch(V[7], V[0], B1) + rotr26(V[7]));
 	V[2] += rotr30(V[3]) + Ma(V[4], F1, V[3]);
 
-	V[5] = F1 + (V[1] = B1addK6 + Ch(V[6], V[7], (PreVal0 + nonce)) + rotr26(V[6]));
+	V[5] = F1 + (V[1] = B1addK6 + Ch(V[6], V[7], V[0]) + rotr26(V[6]));
 	V[1] += rotr30(V[2]) + Ma(V[3], V[4], V[2]);
 
 	V[4] += nonce + PreVal0addK7 + Ch(V[5], V[6], V[7]) + rotr26(V[5]);
