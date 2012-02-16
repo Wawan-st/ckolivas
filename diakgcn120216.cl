@@ -33,14 +33,6 @@
 	#define Ma(x, y, z) ((x & z) | (y & (x | z)))
 #endif
 
-#ifdef GOFFSET
-	// make sure kernel parameter "base" is not used, if GOFFSET is defined
-	#define BASE
-#else
-	// make sure kernel parameter "base" is used, if GOFFSET is not defined
-	#define BASE const u base,
-#endif
-
 #define ch(n) Ch(V[(4 + 128 - n) % 8], V[(5 + 128 - n) % 8], V[(6 + 128 - n) % 8])
 #define ma(n) Ma(V[(1 + 128 - n) % 8], V[(2 + 128 - n) % 8], V[(0 + 128 - n) % 8])
 
@@ -51,7 +43,10 @@
 
 __kernel
 	__attribute__((reqd_work_group_size(WORKSIZE, 1, 1)))
-	void search(	BASE
+	void search(	
+			#ifndef GOFFSET
+			const u base,
+			#endif
 			const uint PreVal4,
 			const uint H1, const uint D1A, const uint PreVal0, const uint B1, const uint C1,
 			const uint F1, const uint G1, const uint C1addK5, const uint B1addK6, const uint PreVal0addK7,
