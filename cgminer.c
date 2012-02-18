@@ -1198,8 +1198,6 @@ static void curses_print_status(void)
 	mvwhline(statuswin, logstart - 1, 0, '-', 80);
 	mvwprintw(statuswin, devcursor - 1, 1, "[P]ool management %s[S]ettings [D]isplay options [Q]uit",
 		have_opencl ? "[G]PU management " : "");
-	/* The window will be updated once we're done with all the devices */
-	wnoutrefresh(statuswin);
 }
 
 static void adj_width(int var, int *length)
@@ -1248,7 +1246,6 @@ static void curses_print_devstatus(int thr_id)
 	}
 
 		wclrtoeol(statuswin);
-	wnoutrefresh(statuswin);
 }
 
 static void print_status(int thr_id)
@@ -1286,7 +1283,6 @@ static void check_winsizes(void)
 		y -= logcursor;
 		wresize(logwin, y, x);
 		mvwin(logwin, logcursor, 0);
-		doupdate();
 		unlock_curses();
 	}
 }
@@ -1310,7 +1306,6 @@ void wlogprint(const char *f, ...)
 		va_start(ap, f);
 		vw_printw(logwin, f, ap);
 		va_end(ap);
-		wrefresh(logwin);
 		unlock_curses();
 	}
 }
@@ -1327,10 +1322,10 @@ void log_curses(int prio, const char *f, va_list ap)
 	if (curses_active_locked()) {
 		if (!opt_loginput || high_prio) {
 			vw_printw(logwin, f, ap);
-			if (high_prio)
-				refresh();
-			else
+			if (high_prio) {
+				touchwin(logwin);
 				wrefresh(logwin);
+			}
 		}
 		unlock_curses();
 	} else
@@ -1341,7 +1336,6 @@ void clear_logwin(void)
 {
 	if (curses_active_locked()) {
 		wclear(logwin);
-		wrefresh(logwin);
 		unlock_curses();
 	}
 }
@@ -1668,7 +1662,6 @@ static void disable_curses(void)
 		delwin(statuswin);
 		delwin(mainwin);
 		endwin();
-		refresh();
 #ifdef WIN32
 		// Move the cursor to after curses output.
 		HANDLE hout = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -1693,7 +1686,6 @@ void kill_work(void)
 	struct thr_info *thr;
 	int i;
 
-	disable_curses();
 	applog(LOG_INFO, "Received kill message");
 
 	applog(LOG_DEBUG, "Killing off watchpool thread");
@@ -1706,8 +1698,18 @@ void kill_work(void)
 	thr = &thr_info[watchdog_thr_id];
 	thr_info_cancel(thr);
 
-	applog(LOG_DEBUG, "Killing off mining threads");
+	applog(LOG_DEBUG, "Stopping mining threads");
 	/* Stop the mining threads*/
+	for (i = 0; i < mining_threads; i++) {
+		thr = &thr_info[i];
+		thr_info_freeze(thr);
+		thr->pause = true;
+	}
+
+	sleep(1);
+
+	applog(LOG_DEBUG, "Killing off mining threads");
+	/* Kill the mining threads*/
 	for (i = 0; i < mining_threads; i++) {
 		thr = &thr_info[i];
 		thr_info_cancel(thr);
@@ -2243,7 +2245,6 @@ static void display_pool_summary(struct pool *pool)
 		wlog(" Stale submissions discarded due to new blocks: %d\n", pool->stale_shares);
 		wlog(" Unable to get work from server occasions: %d\n", pool->getfail_occasions);
 		wlog(" Submitting work remotely delay occasions: %d\n\n", pool->remotefail_occasions);
-		wrefresh(logwin);
 		unlock_curses();
 	}
 }
@@ -3683,8 +3684,10 @@ static void *watchdog_thread(void __maybe_unused *userdata)
 			curses_print_status();
 			for (i = 0; i < mining_threads; i++)
 				curses_print_devstatus(i);
-			clearok(curscr, true);
-			doupdate();
+			touchwin(statuswin);
+			wrefresh(statuswin);
+			touchwin(logwin);
+			wrefresh(logwin);
 			unlock_curses();
 		}
 
@@ -3886,14 +3889,14 @@ static void print_summary(void)
 
 static void clean_up(void)
 {
+#ifdef HAVE_OPENCL
+	clear_adl(nDevs);
+#endif
+
 	gettimeofday(&total_tv_end, NULL);
 	disable_curses();
 	if (!opt_realquiet && successful_connect)
 		print_summary();
-
-#ifdef HAVE_OPENCL
-	clear_adl(nDevs);
-#endif
 
 	if (opt_n_threads)
 		free(cpus);

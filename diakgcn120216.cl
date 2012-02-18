@@ -1,4 +1,4 @@
-// DiaKGCN 16-02-2012 - OpenCL kernel by Diapolo
+// DiaKGCN 18-02-2012 - OpenCL kernel by Diapolo
 //
 // Parts and / or ideas for this kernel are based upon the public-domain poclbm project, the phatk kernel by Phateus and the DiabloMiner kernel by DiabloD3.
 // The kernel was rewritten by me (Diapolo) and is still public-domain!
@@ -54,6 +54,8 @@ __kernel
 			const uint state0, const uint state1, const uint state2, const uint state3,
 			const uint state4, const uint state5, const uint state6, const uint state7,
 			const uint state0A, const uint state0B,
+			const uint state1A, const uint state2A, const uint state3A, const uint state4A,
+			const uint state5A, const uint state6A, const uint state7A,
 			__global uint * output)
 {
 	u W[16];
@@ -86,19 +88,25 @@ __kernel
 #endif
 
 	V[0] = PreVal0 + nonce;
+	V[1] = B1;
+	V[2] = C1;
+	V[3] = D1A;
 	V[4] = PreVal4 + nonce;
+	V[5] = F1;
+	V[6] = G1;
+	V[7] = H1;
 
-	V[7] = H1 + (V[3] = D1A + ch(V[0], B1, C1) + rotr26(V[0]));
-	V[3] += rotr30(V[4]) + ma(F1, G1, V[4]);
+	V[7] += V[3] + ch(V[0], V[1], V[2]) + rotr26(V[0]);
+	V[3] =  V[3] + ch(V[0], V[1], V[2]) + rotr26(V[0]) + rotr30(V[4]) + ma(V[5], V[6], V[4]);
 
-	V[6] = G1 + (V[2] = C1addK5 + ch(V[7], V[0], B1) + rotr26(V[7]));
-	V[2] += rotr30(V[3]) + ma(V[4], F1, V[3]);
+	V[6] += C1addK5 + ch(V[7], V[0], V[1]) + rotr26(V[7]);
+	V[2] =  C1addK5 + ch(V[7], V[0], V[1]) + rotr26(V[7]) + rotr30(V[3]) + ma(V[4], V[5], V[3]);
 
-	V[5] = F1 + (V[1] = B1addK6 + ch(V[6], V[7], V[0]) + rotr26(V[6]));
-	V[1] += rotr30(V[2]) + ma(V[3], V[4], V[2]);
+	V[5] += B1addK6 + ch(V[6], V[7], V[0]) + rotr26(V[6]);
+	V[1] =  B1addK6 + ch(V[6], V[7], V[0]) + rotr26(V[6]) + rotr30(V[2]) + ma(V[3], V[4], V[2]);
 
-	V[4] += nonce + PreVal0addK7 + ch(V[5], V[6], V[7]) + rotr26(V[5]);
-	V[0] =  nonce + PreVal0addK7 + ch(V[5], V[6], V[7]) + rotr26(V[5]) + rotr30(V[1]) + ma(V[2], V[3], V[1]);
+	V[4] += PreVal0addK7 + nonce + ch(V[5], V[6], V[7]) + rotr26(V[5]);
+	V[0] =  PreVal0addK7 + nonce + ch(V[5], V[6], V[7]) + rotr26(V[5]) + rotr30(V[1]) + ma(V[2], V[3], V[1]);
 
 	V[3] += 0xd807aa98 + V[7] + ch(V[4], V[5], V[6]) + rotr26(V[4]);
 	V[7] =  0xd807aa98 + V[7] + ch(V[4], V[5], V[6]) + rotr26(V[4]) + rotr30(V[0]) + ma(V[1], V[2], V[0]);
@@ -348,26 +356,41 @@ __kernel
 	// 0xfc08884d + W[0]
 	const u state0BaddV0 = state0B + V[0];
 
-	V[2] = 0x3c6ef372 + (V[6] = 0x90bb1e3c + W[1] + ch(state0AaddV0, 0x510e527fU, 0x9b05688cU) + rotr26(state0AaddV0));
+	// 0x90bb1e3c + W[1]
+	const u state1AaddV1 = state1A + V[1];
+	// 0x50c6645b + W[2]
+	const u state2AaddV2 = state2A + V[2];
+	// 0x3ac42e24 + W[3]
+	const u state3AaddV3 = state3A + V[3];
+	// 0x3956c25b + W[4]
+	const u state4AaddV4 = state4A + V[4];
+	// 0x59f111f1 + W[5]
+	const u state5AaddV5 = state5A + V[5];
+	// 0x923f82a4 + W[6]
+	const u state6AaddV6 = state6A + V[6];
+	// 0xab1c5ed5 + W[7]
+	const u state7AaddV7 = state7A + V[7];
+	
+	V[2] = 0x3c6ef372 + (V[6] = state1AaddV1 + ch(state0AaddV0, 0x510e527fU, 0x9b05688cU) + rotr26(state0AaddV0));
 	V[6] += rotr30(state0BaddV0) + ma(0x6a09e667U, 0xbb67ae85U, state0BaddV0);
 		
-	V[1] = 0xbb67ae85 + (V[5] = 0x50c6645b + W[2] + ch(V[2], state0AaddV0, 0x510e527fU) + rotr26(V[2]));
+	V[1] = 0xbb67ae85 + (V[5] = state2AaddV2 + ch(V[2], state0AaddV0, 0x510e527fU) + rotr26(V[2]));
 	V[5] += rotr30(V[6]) + ma(state0BaddV0, 0x6a09e667U, V[6]);
 
-	V[0] = 0x6a09e667 + (V[4] = 0x3ac42e24 + W[3] + ch(V[1], V[2], state0AaddV0) + rotr26(V[1]));
+	V[0] = 0x6a09e667 + (V[4] = state3AaddV3 + ch(V[1], V[2], state0AaddV0) + rotr26(V[1]));
 	V[4] += rotr30(V[5]) + ma(V[6], state0BaddV0, V[5]);
 
-	V[7] = state0BaddV0 + (V[3] = 0x3956c25b + state0AaddV0 + W[4] + ch(V[0], V[1], V[2]) + rotr26(V[0]));
+	V[7] = state0BaddV0 + (V[3] = state4AaddV4 + state0AaddV0 + ch(V[0], V[1], V[2]) + rotr26(V[0]));
 	V[3] += rotr30(V[4]) + ma(V[5], V[6], V[4]);
 
-	V[6] += 0x59f111f1 + V[2] + W[5] + ch(V[7], V[0], V[1]) + rotr26(V[7]);
-	V[2] =  0x59f111f1 + V[2] + W[5] + ch(V[7], V[0], V[1]) + rotr26(V[7]) + rotr30(V[3]) + ma(V[4], V[5], V[3]);
+	V[6] += (V[2] += state5AaddV5 + ch(V[7], V[0], V[1]) + rotr26(V[7]));
+	V[2] += rotr30(V[3]) + ma(V[4], V[5], V[3]);
 
-	V[5] += 0x923f82a4 + V[1] + W[6] + ch(V[6], V[7], V[0]) + rotr26(V[6]);
-	V[1] =  0x923f82a4 + V[1] + W[6] + ch(V[6], V[7], V[0]) + rotr26(V[6]) + rotr30(V[2]) + ma(V[3], V[4], V[2]);
+	V[5] += (V[1] += state6AaddV6 + ch(V[6], V[7], V[0]) + rotr26(V[6]));
+	V[1] += rotr30(V[2]) + ma(V[3], V[4], V[2]);
 
-	V[4] += 0xab1c5ed5 + V[0] + W[7] + ch(V[5], V[6], V[7]) + rotr26(V[5]);
-	V[0] =  0xab1c5ed5 + V[0] + W[7] + ch(V[5], V[6], V[7]) + rotr26(V[5]) + rotr30(V[1]) + ma(V[2], V[3], V[1]);
+	V[4] += (V[0] += state7AaddV7 + ch(V[5], V[6], V[7]) + rotr26(V[5]));
+	V[0] += rotr30(V[1]) + ma(V[2], V[3], V[1]);
 
 	V[3] += 0x5807aa98 + V[7] + ch(V[4], V[5], V[6]) + rotr26(V[4]);
 	V[7] =  0x5807aa98 + V[7] + ch(V[4], V[5], V[6]) + rotr26(V[4]) + rotr30(V[0]) + ma(V[1], V[2], V[0]);
@@ -582,7 +605,30 @@ __kernel
 #define FOUND (0x80)
 #define NFLAG (0x7F)
 
-#ifdef VECTORS4
+#ifdef VECTORS8
+	V[7] ^= 0x136032ed;
+
+	bool result = V[7].s0 & V[7].s1 & V[7].s2 & V[7].s3 & V[7].s4 & V[7].s5 & V[7].s6 & V[7].s7;
+
+	if (!result) {
+		if (!V[7].s0)
+			output[FOUND] = output[NFLAG & nonce.s0] = nonce.s0;
+		if (!V[7].s1)
+			output[FOUND] = output[NFLAG & nonce.s1] = nonce.s1;
+		if (!V[7].s2)
+			output[FOUND] = output[NFLAG & nonce.s2] = nonce.s2;
+		if (!V[7].s3)
+			output[FOUND] = output[NFLAG & nonce.s3] = nonce.s3;
+		if (!V[7].s4)
+			output[FOUND] = output[NFLAG & nonce.s4] = nonce.s4;
+		if (!V[7].s5)
+			output[FOUND] = output[NFLAG & nonce.s5] = nonce.s5;
+		if (!V[7].s6)
+			output[FOUND] = output[NFLAG & nonce.s6] = nonce.s6;
+		if (!V[7].s7)
+			output[FOUND] = output[NFLAG & nonce.s7] = nonce.s7;
+	}
+#elif defined VECTORS4
 	V[7] ^= 0x136032ed;
 
 	bool result = V[7].x & V[7].y & V[7].z & V[7].w;
@@ -597,21 +643,19 @@ __kernel
 		if (!V[7].w)
 			output[FOUND] = output[NFLAG & nonce.w] = nonce.w;
 	}
+#elif defined VECTORS2
+	V[7] ^= 0x136032ed;
+
+	bool result = V[7].x & V[7].y;
+
+	if (!result) {
+		if (!V[7].x)
+			output[FOUND] = output[NFLAG & nonce.x] = nonce.x;
+		if (!V[7].y)
+			output[FOUND] = output[NFLAG & nonce.y] = nonce.y;
+	}
 #else
-	#ifdef VECTORS2
-		V[7] ^= 0x136032ed;
-
-		bool result = V[7].x & V[7].y;
-
-		if (!result) {
-			if (!V[7].x)
-				output[FOUND] = output[NFLAG & nonce.x] = nonce.x;
-			if (!V[7].y)
-				output[FOUND] = output[NFLAG & nonce.y] = nonce.y;
-		}
-	#else
-		if (V[7] == 0x136032ed)
-			output[FOUND] = output[NFLAG & nonce] = nonce;
-	#endif
+	if (V[7] == 0x136032ed)
+		output[FOUND] = output[NFLAG & nonce] = nonce;
 #endif
 }

@@ -280,6 +280,7 @@ struct thr_info {
 
 extern int thr_info_create(struct thr_info *thr, pthread_attr_t *attr, void *(*start) (void *), void *arg);
 extern void thr_info_cancel(struct thr_info *thr);
+extern void thr_info_freeze(struct thr_info *thr);
 
 
 struct string_elist {
@@ -507,6 +508,7 @@ typedef struct {
 	/* For diakgcn */
 	cl_uint B1addK6, PreVal0addK7, W16addK16, W17addK17;
 	cl_uint zeroA, zeroB;
+	cl_uint oneA, twoA, threeA, fourA, fiveA, sixA, sevenA;
 } dev_blk_ctx;
 #else
 typedef struct {
