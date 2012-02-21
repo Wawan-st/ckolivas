@@ -1252,6 +1252,9 @@ static uint64_t opencl_scanhash(struct thr_info *thr, struct work *work,
 
 	/* MAXBUFFERS entry is used as a flag to say nonces exist */
 	if (thrdata->res[FOUND]) {
+		/* zero the flag, if it has been set to 1 by diakgcn */
+		if (thrdata->res[FOUND] == 1)
+			thrdata->res[FOUND] = 0;
 		/* Clear the buffer again */
 		status = clEnqueueWriteBuffer(clState->commandQueue, clState->outputBuffer, CL_FALSE, 0,
 				BUFFERSIZE, blank_res, 0, NULL, NULL);

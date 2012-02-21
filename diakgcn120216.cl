@@ -1,4 +1,4 @@
-// DiaKGCN 20-02-2012 - OpenCL kernel by Diapolo
+// DiaKGCN 21-02-2012 - OpenCL kernel by Diapolo
 //
 // Parts and / or ideas for this kernel are based upon the public-domain poclbm project, the phatk kernel by Phateus and the DiabloMiner kernel by DiabloD3.
 // The kernel was rewritten by me (Diapolo) and is still public-domain!
@@ -600,22 +600,23 @@ __kernel
 	bool result = V[7].s0 & V[7].s1 & V[7].s2 & V[7].s3 & V[7].s4 & V[7].s5 & V[7].s6 & V[7].s7;
 
 	if (!result) {
+		output[FOUND] = 1;
 		if (!V[7].s0)
-			output[FOUND] = output[NFLAG & nonce.s0] = nonce.s0;
+			output[NFLAG & nonce.s0] = nonce.s0;
 		if (!V[7].s1)
-			output[FOUND] = output[NFLAG & nonce.s1] = nonce.s1;
+			output[NFLAG & nonce.s1] = nonce.s1;
 		if (!V[7].s2)
-			output[FOUND] = output[NFLAG & nonce.s2] = nonce.s2;
+			output[NFLAG & nonce.s2] = nonce.s2;
 		if (!V[7].s3)
-			output[FOUND] = output[NFLAG & nonce.s3] = nonce.s3;
+			output[NFLAG & nonce.s3] = nonce.s3;
 		if (!V[7].s4)
-			output[FOUND] = output[NFLAG & nonce.s4] = nonce.s4;
+			output[NFLAG & nonce.s4] = nonce.s4;
 		if (!V[7].s5)
-			output[FOUND] = output[NFLAG & nonce.s5] = nonce.s5;
+			output[NFLAG & nonce.s5] = nonce.s5;
 		if (!V[7].s6)
-			output[FOUND] = output[NFLAG & nonce.s6] = nonce.s6;
+			output[NFLAG & nonce.s6] = nonce.s6;
 		if (!V[7].s7)
-			output[FOUND] = output[NFLAG & nonce.s7] = nonce.s7;
+			output[NFLAG & nonce.s7] = nonce.s7;
 	}
 #elif defined VECTORS4
 	V[7] ^= 0x136032ed;
@@ -623,14 +624,15 @@ __kernel
 	bool result = V[7].x & V[7].y & V[7].z & V[7].w;
 
 	if (!result) {
+		output[FOUND] = 1;
 		if (!V[7].x)
-			output[FOUND] = output[NFLAG & nonce.x] = nonce.x;
+			output[NFLAG & nonce.x] = nonce.x;
 		if (!V[7].y)
-			output[FOUND] = output[NFLAG & nonce.y] = nonce.y;
+			output[NFLAG & nonce.y] = nonce.y;
 		if (!V[7].z)
-			output[FOUND] = output[NFLAG & nonce.z] = nonce.z;
+			output[NFLAG & nonce.z] = nonce.z;
 		if (!V[7].w)
-			output[FOUND] = output[NFLAG & nonce.w] = nonce.w;
+			output[NFLAG & nonce.w] = nonce.w;
 	}
 #elif defined VECTORS2
 	V[7] ^= 0x136032ed;
@@ -638,10 +640,11 @@ __kernel
 	bool result = V[7].x & V[7].y;
 
 	if (!result) {
+		output[FOUND] = 1;
 		if (!V[7].x)
-			output[FOUND] = output[NFLAG & nonce.x] = nonce.x;
+			output[NFLAG & nonce.x] = nonce.x;
 		if (!V[7].y)
-			output[FOUND] = output[NFLAG & nonce.y] = nonce.y;
+			output[NFLAG & nonce.y] = nonce.y;
 	}
 #else
 	if (V[7] == 0x136032ed)
