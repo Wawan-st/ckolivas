@@ -202,6 +202,16 @@ FPGA mining boards(BitForce, Icarus) only options:
 
 --scan-serial|-S <arg> Serial port to probe for FPGA mining device
 
+     By default, cgminer will scan for autodetected FPGAs unless at least one
+     -S is specified. If you specify -S and still want cgminer to scan, you
+     must also use "-S auto". Note that presently, autodetection only works
+     on Linux, and might only detect one device depending on the version of
+     udev being used.
+
+     On linux <arg> is usually of the format /dev/ttyUSBn
+     On windows <arg> is usually of the format COMn
+       (where n = the correct device number for the FPGA device)
+
 
 CPU only options:
 
@@ -584,9 +594,11 @@ An example request in both formats to set GPU 0 fan to 80%:
 The format of each reply (unless stated otherwise) is a STATUS section
 followed by an optional detail section
 
+For API version 1.4:
+
 The STATUS section is:
 
- STATUS=X,Code=N,Msg=string,Description=string|
+ STATUS=X,When=NNN,Code=N,Msg=string,Description=string|
 
   STATUS=X Where X is one of:
    W - Warning
@@ -594,6 +606,9 @@ The STATUS section is:
    S - Success
    E - Error
    F - Fatal (code bug)
+
+  When=NNN
+   Standard long time of request in seconds
 
   Code=N
    Each unique reply has a unigue Code (See api.c - #define MSG_NNNNNN)
@@ -605,7 +620,7 @@ The STATUS section is:
    This defaults to the cgminer version but is the value of --api-description
    if it was specified at runtime.
 
-For API version 1.2:
+For API version 1.4:
 
 The list of requests - a (*) means it requires privileged access - and replies are:
 
