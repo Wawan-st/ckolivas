@@ -54,7 +54,6 @@
 	#include <sys/wait.h>
 #endif
 
-
 enum workio_commands {
 	WC_GET_WORK,
 	WC_SUBMIT_WORK,
@@ -1017,6 +1016,9 @@ static char *opt_verusage_and_exit(const char *extra)
 #ifdef USE_ICARUS
 		"icarus "
 #endif
+#ifdef USE_ZTEX
+		"ztex "
+#endif
 		"mining support.\n"
 		, packagename);
 	printf("%s", opt_usage(opt_argv0, extra));
@@ -1550,6 +1552,8 @@ static bool submit_upstream_work(const struct work *work)
 	res = json_object_get(val, "result");
 
 	if (!QUIET) {
+#ifndef MIPSEB
+// This one segfaults on my router for some reason
 		isblock = regeneratehash(work);
 		if (isblock)
 			found_blocks++;
@@ -1557,6 +1561,7 @@ static bool submit_upstream_work(const struct work *work)
 		sprintf(hashshow, "%08lx.%08lx.%08lx%s",
 			(unsigned long)(hash32[7]), (unsigned long)(hash32[6]), (unsigned long)(hash32[5]),
 			isblock ? " BLOCK!" : "");
+#endif
 	}
 
 	/* Theoretically threads could race when modifying accepted and
@@ -4154,6 +4159,9 @@ static void clean_up(void)
 #ifdef HAVE_OPENCL
 	clear_adl(nDevs);
 #endif
+#ifdef HAVE_LIBUSB
+        libusb_exit(NULL);
+#endif
 
 	gettimeofday(&total_tv_end, NULL);
 #ifdef HAVE_CURSES
@@ -4410,6 +4418,10 @@ extern struct device_api bitforce_api;
 extern struct device_api icarus_api;
 #endif
 
+#ifdef USE_ZTEX
+extern struct device_api ztex_api;
+#endif
+
 
 static int cgminer_id_count = 0;
 
@@ -4469,6 +4481,9 @@ int main(int argc, char *argv[])
 	for  (i = 0; i < argc; i++)
 		initial_args[i] = strdup(argv[i]);
 	initial_args[argc] = NULL;
+#ifdef HAVE_LIBUSB
+        libusb_init(NULL);
+#endif
 
 	mutex_init(&hash_lock);
 	mutex_init(&qd_lock);
@@ -4620,6 +4635,10 @@ int main(int argc, char *argv[])
 
 #ifdef USE_ICARUS
 	icarus_api.api_detect();
+#endif
+
+#ifdef USE_ZTEX
+	ztex_api.api_detect();
 #endif
 
 #ifdef WANT_CPUMINE
