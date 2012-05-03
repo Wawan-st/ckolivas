@@ -2454,6 +2454,7 @@ void api(int api_thr_id)
 		CLOSESOCKET(c);
 	}
 die:
+	; // some compiler #defines require this ';' for pthread_cleanup_pop()
 	pthread_cleanup_pop(true);
 
 	if (opt_debug)
