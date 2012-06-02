@@ -153,8 +153,6 @@ int gpur_thr_id;
 static int api_thr_id;
 static int total_threads;
 
-struct work_restart *work_restart = NULL;
-
 static pthread_mutex_t hash_lock;
 static pthread_mutex_t qd_lock;
 static pthread_mutex_t *stgd_lock;
@@ -2376,7 +2374,9 @@ static bool queue_request(struct thr_info *thr, bool needed);
 
 static void restart_threads(void)
 {
-	int i, stale;
+	int i, j, stale;
+	struct cgpu_info *cgpu;
+	struct thr_info *thr;
 
 	/* Discard staged work that is now stale */
 	stale = discard_stale();
@@ -2384,8 +2384,15 @@ static void restart_threads(void)
 	for (i = 0; i < stale; i++)
 		queue_request(NULL, true);
 
-	for (i = 0; i < mining_threads; i++)
-		work_restart[i].restart = 1;
+	for (i = 0; i < total_devices; ++i)
+	{
+		cgpu = devices[i];
+		for (j = 0; j < cgpu->threads; ++j)
+		{
+			thr = &cgpu->thread[j];
+			thr->work_restart = true;
+		}
+	}
 }
 
 static void set_curblock(char *hexstr, unsigned char *hash)
@@ -3779,7 +3786,7 @@ void *miner_thread(void *userdata)
 	gettimeofday(&tv_lastupdate, NULL);
 
 	while (1) {
-		work_restart[thr_id].restart = 0;
+		mythr->work_restart = false;
 		if (api->free_work && likely(work->pool))
 			api->free_work(mythr, work);
 		if (unlikely(!get_work(work, requested, mythr, thr_id))) {
@@ -3835,7 +3842,7 @@ void *miner_thread(void *userdata)
 
 			gettimeofday(&getwork_start, NULL);
 
-			if (unlikely(work_restart[thr_id].restart)) {
+			if (unlikely(mythr->work_restart)) {
 
 				/* Apart from device_thread 0, we stagger the
 				 * starting of every next thread to try and get
@@ -5041,10 +5048,6 @@ int main(int argc, char *argv[])
 	#endif // defined(unix)
 
 	total_threads = mining_threads + 7;
-	work_restart = calloc(total_threads, sizeof(*work_restart));
-	if (!work_restart)
-		quit(1, "Failed to calloc work_restart");
-
 	thr_info = calloc(total_threads, sizeof(*thr));
 	if (!thr_info)
 		quit(1, "Failed to calloc thr_info");
