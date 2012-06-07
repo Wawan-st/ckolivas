@@ -101,9 +101,11 @@ static bool bitforce_detect_one(const char *devpath)
 	if (total_devices == MAX_DEVICES)
 		return false;
 
+	applog(LOG_DEBUG, "BitForce Detect: Attempting to open %s", devpath);
+
 	int fdDev = BFopen(devpath);
 	if (unlikely(fdDev == -1)) {
-		applog(LOG_DEBUG, "BitForce Detect: Failed to open %s", devpath);
+		applog(LOG_ERR, "BitForce Detect: Failed to open %s", devpath);
 		return false;
 	}
 	BFwrite(fdDev, "ZGX", 3);
@@ -210,14 +212,17 @@ static void bitforce_detect_auto()
 static void bitforce_detect()
 {
 	struct string_elist *iter, *tmp;
-	const char*s;
+	const char*s, *p;
 	bool found = false;
 	bool autoscan = false;
 
 	list_for_each_entry_safe(iter, tmp, &scan_devices, list) {
 		s = iter->string;
-		if (!strncmp("bitforce:", iter->string, 9))
-			s += 9;
+		if ((p = strchr(s, ':')) && p[1] != '\0') {
+			if (strncasecmp(s, bitforce_api.dname, p - s))
+				continue;
+			s = p + 1;
+		}
 		if (!strcmp(s, "auto"))
 			autoscan = true;
 		else
