@@ -438,6 +438,8 @@ static bool icarus_detect_one(const char *devpath)
 	if (total_devices == MAX_DEVICES)
 		return false;
 
+	applog(LOG_DEBUG, "Icarus Detect: Attempting to open %s", devpath);
+
 	fd = icarus_open(devpath);
 	if (unlikely(fd == -1)) {
 		applog(LOG_ERR, "Icarus Detect: Failed to open %s", devpath);
@@ -508,8 +510,11 @@ static void icarus_detect()
 
 	list_for_each_entry_safe(iter, tmp, &scan_devices, list) {
 		s = iter->string;
-		if (!strncmp("icarus:", iter->string, 7))
-			s += 7;
+		if (s[SCANSERIAL_ID_LENGTH] == ':') {
+			if (strncasecmp(s, SCANSERIAL_ID_ICA, SCANSERIAL_ID_LENGTH))
+				continue;
+			s += (SCANSERIAL_ID_LENGTH + 1);
+		}
 		if (!strcmp(s, "auto") || !strcmp(s, "noauto"))
 			continue;
 		if (icarus_detect_one(s))

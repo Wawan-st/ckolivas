@@ -101,9 +101,11 @@ static bool bitforce_detect_one(const char *devpath)
 	if (total_devices == MAX_DEVICES)
 		return false;
 
+	applog(LOG_DEBUG, "BitForce Detect: Attempting to open %s", devpath);
+
 	int fdDev = BFopen(devpath);
 	if (unlikely(fdDev == -1)) {
-		applog(LOG_DEBUG, "BitForce Detect: Failed to open %s", devpath);
+		applog(LOG_ERR, "BitForce Detect: Failed to open %s", devpath);
 		return false;
 	}
 	BFwrite(fdDev, "ZGX", 3);
@@ -216,8 +218,11 @@ static void bitforce_detect()
 
 	list_for_each_entry_safe(iter, tmp, &scan_devices, list) {
 		s = iter->string;
-		if (!strncmp("bitforce:", iter->string, 9))
-			s += 9;
+		if (s[SCANSERIAL_ID_LENGTH] == ':') {
+			if (strncasecmp(s, SCANSERIAL_ID_BFL, SCANSERIAL_ID_LENGTH))
+				continue;
+			s += (SCANSERIAL_ID_LENGTH + 1);
+		}
 		if (!strcmp(s, "auto"))
 			autoscan = true;
 		else

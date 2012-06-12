@@ -586,6 +586,12 @@ extern int add_pool_details(bool live, char *url, char *user, char *pass);
 #define MAX_INTENSITY 14
 #define _MAX_INTENSITY_STR "14"
 
+#if defined(USE_BITFORCE) || defined(USE_ICARUS)
+#define SCANSERIAL_ID_LENGTH 3
+#define SCANSERIAL_ID_ICA "ICA"
+#define SCANSERIAL_ID_BFL "BFL"
+#endif
+
 extern struct list_head scan_devices;
 extern int nDevs;
 extern int opt_n_threads;
