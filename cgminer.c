@@ -192,7 +192,7 @@ unsigned int total_go, total_ro;
 
 struct pool *pools[MAX_POOLS];
 static struct pool *currentpool = NULL;
-enum pool_enable opt_pool_enabled = POOL_ENABLED;
+bool opt_pool_disable = false;
 int total_pools;
 enum pool_strategy pool_strategy = POOL_FAILOVER;
 int opt_rotate_period;
@@ -593,14 +593,16 @@ static char *set_userpass(const char *arg)
 	return NULL;
 }
 
-static char *set_pool_disabled(enum pool_enable *pool_state)
+static char *set_pool_disabled(bool *pool_disable)
 {
 	struct pool *pool;
-	*pool_state = POOL_DISABLED;	// This (and opt_pool_enabled) does nothing. Here for compatability
+
+	if(!*pool_disable)
+		return NULL;
 
 	if (total_pools) {
-	  pool = pools[total_pools - 1];
-	  pool->enabled = POOL_DISABLED;
+		pool = pools[total_pools - 1];
+		pool->enabled = POOL_DISABLED;
 	}
 	return NULL;
 }
@@ -1002,7 +1004,7 @@ static struct opt_table opt_config_table[] = {
 		     set_userpass, NULL, NULL,
 		     "Username:Password pair for bitcoin JSON-RPC server"),
 	OPT_WITHOUT_ARG("--disable-pool",
-			set_pool_disabled, &opt_pool_enabled,
+			set_pool_disabled, &opt_pool_disable,
 			"Start with pool disabled."),
 	OPT_WITH_ARG("--pools",
 			opt_set_bool, NULL, NULL, opt_hidden),
