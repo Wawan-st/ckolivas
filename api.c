@@ -1174,10 +1174,12 @@ static void pgaenable(__maybe_unused SOCKETTYPE c, char *param, bool isjson)
 		return;
 	}
 
+/* Allow unwell devices to be enabled so they can be cured
 	if (cgpu->status != LIFE_WELL) {
 		strcpy(io_buffer, message(MSG_PGAUNW, id, NULL, isjson));
 		return;
 	}
+*/
 
 	for (i = 0; i < mining_threads; i++) {
 		pga = thr_info[i].cgpu->device_id;
