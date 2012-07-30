@@ -287,8 +287,7 @@ re_send:
 	BFgets(pdevbuf, sizeof(pdevbuf), fdDev);
 	if (!pdevbuf[0] || !strncasecmp(pdevbuf, "B", 1)) {
 		mutex_unlock(&bitforce->device_mutex);
-		if (!restart_wait(WORK_CHECK_INTERVAL_MS))
-			return false;
+		usleep(WORK_CHECK_INTERVAL_MS*1000);
 		goto re_send;
 	} else if (unlikely(strncasecmp(pdevbuf, "OK", 2))) {
 		mutex_unlock(&bitforce->device_mutex);
@@ -505,6 +504,8 @@ static int64_t bitforce_scanhash(struct thr_info *thr, struct work *work, int64_
 
 	if (ret)
 		ret = bitforce_get_result(thr, work);
+	else
+		ret = -1;
 
 	if (ret == -1) {
 		ret = 0;
