@@ -721,6 +721,8 @@ struct pool {
 	bool submit_old;
 	bool removed;
 	bool lp_started;
+	unsigned char	work_restart_id;
+	uint32_t	block_id;
 
 	char *hdr_path;
 	char *lp_url;
@@ -782,7 +784,7 @@ struct work {
 	bool		mandatory;
 	bool		block;
 
-	unsigned int	work_block;
+	unsigned char	work_restart_id;
 	int		id;
 	UT_hash_handle hh;
 
