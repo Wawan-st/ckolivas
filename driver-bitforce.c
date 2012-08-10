@@ -51,7 +51,7 @@ enum {
 #define BITFORCE_SLEEP_MS 500
 #define BITFORCE_TIMEOUT_S 7
 #define BITFORCE_TIMEOUT_MS (BITFORCE_TIMEOUT_S * 1000)
-#define BITFORCE_LONG_TIMEOUT_S 15
+#define BITFORCE_LONG_TIMEOUT_S 21
 #define BITFORCE_LONG_TIMEOUT_MS (BITFORCE_LONG_TIMEOUT_S * 1000)
 #define BITFORCE_CHECK_INTERVAL_MS 10
 #define WORK_CHECK_INTERVAL_MS 50
@@ -486,14 +486,15 @@ static int64_t bitforce_get_result(struct thr_info *thr, struct work *work)
 	if (!fdDev)
 		return -1;
 
+	mutex_lock(&bitforce->device_mutex);
 	while (1) {
-		if (unlikely(thr->work_restart))
+		if (unlikely(thr->work_restart)) {
+			mutex_unlock(&bitforce->device_mutex);
 			return 0;
+		}
 
-		mutex_lock(&bitforce->device_mutex);
 		BFwrite(fdDev, "ZFX", 3);
 		BFgets(pdevbuf, sizeof(pdevbuf), fdDev);
-		mutex_unlock(&bitforce->device_mutex);
 
 		gettimeofday(&now, NULL);
 		timersub(&now, &bitforce->work_start_tv, &elapsed);
@@ -501,6 +502,7 @@ static int64_t bitforce_get_result(struct thr_info *thr, struct work *work)
 		if (elapsed.tv_sec >= BITFORCE_LONG_TIMEOUT_S) {
 			applog(LOG_ERR, "BFL%i: took %dms - longer than %dms", bitforce->device_id,
 				tv_to_ms(elapsed), BITFORCE_LONG_TIMEOUT_MS);
+			mutex_unlock(&bitforce->device_mutex);
 			return 0;
 		}
 
@@ -512,6 +514,7 @@ static int64_t bitforce_get_result(struct thr_info *thr, struct work *work)
 		nmsleep(delay_time_ms);
 		bitforce->wait_ms += delay_time_ms;
 	}
+	mutex_unlock(&bitforce->device_mutex);
 
 	if (elapsed.tv_sec > BITFORCE_TIMEOUT_S) {
 		applog(LOG_ERR, "BFL%i: took %dms - longer than %dms", bitforce->device_id,
