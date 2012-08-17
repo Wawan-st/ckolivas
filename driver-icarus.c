@@ -712,7 +712,7 @@ static int64_t icarus_scanhash(struct thr_info *thr, struct work *work,
 	nonce = swab32(nonce);
 #endif
 
-	submit_nonce(thr, work, nonce);
+	submit_nonce_1diff(thr, work, nonce);
 
 	hash_count = (nonce & info->nonce_mask);
 	hash_count++;
