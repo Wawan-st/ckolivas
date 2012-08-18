@@ -4180,7 +4180,7 @@ err_out:
 	return false;
 }
 
-bool hashtest(const struct work *work)
+bool hashtest(const struct work *work, bool do_fulltest)
 {
 	uint32_t *data32 = (uint32_t *)(work->data);
 	unsigned char swap[128];
@@ -4201,7 +4201,10 @@ bool hashtest(const struct work *work)
 
 	memcpy((void*)work->hash, hash2, 32);
 
-	return fulltest(work->hash, work->target);
+	if (do_fulltest)
+		return fulltest(work->hash, work->target);
+	else
+		return (hash2_32[7] == 0);
 
 }
 
@@ -4219,7 +4222,7 @@ bool test_nonce(struct work *work, uint32_t nonce)
 	work->data[64 + 12 + 2] = (nonce >> 16) & 0xff;
 	work->data[64 + 12 + 3] = (nonce >> 24) & 0xff;
 
-	return hashtest(work);
+	return hashtest(work, true);
 }
 
 bool submit_nonce(struct thr_info *thr, struct work *work, uint32_t nonce)
@@ -4230,6 +4233,40 @@ bool submit_nonce(struct thr_info *thr, struct work *work, uint32_t nonce)
 		applog(LOG_INFO, "Share below target");
 		return true;
 	}
+	return submit_work_sync(thr, work);
+}
+
+/*
+ * Check a 1diff sha256 nonce
+ * If it doesn't hash to 1diff, then it was a HW error
+ * This is only for devices that produce 1diff sha256 nonces
+ */
+bool submit_nonce_1diff(struct thr_info *thr, struct work *work, uint32_t nonce)
+{
+	// not for scrypt - code bug
+	if (opt_scrypt) {
+		applog(LOG_ERR, "ERROR: submit_nonce_1diff() called with scrypt");
+		return true;
+	}
+
+	work->data[64 + 12 + 0] = (nonce >> 0) & 0xff;
+	work->data[64 + 12 + 1] = (nonce >> 8) & 0xff;
+	work->data[64 + 12 + 2] = (nonce >> 16) & 0xff;
+	work->data[64 + 12 + 3] = (nonce >> 24) & 0xff;
+
+	if (!hashtest(work, false)) {
+		applog(LOG_WARNING, "%s%d: invalid nonce - HW error",
+			thr->cgpu->api->name, thr->cgpu->device_id);
+		hw_errors++;
+		thr->cgpu->hw_errors++;
+		return true;
+	}
+
+	if (!fulltest(work->hash, work->target)) {
+		applog(LOG_INFO, "Share below target");
+		return true;
+	}
+
 	return submit_work_sync(thr, work);
 }
 

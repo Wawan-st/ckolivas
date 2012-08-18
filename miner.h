@@ -824,6 +824,7 @@ struct modminer_fpga_state {
 extern void get_datestamp(char *, struct timeval *);
 extern bool test_nonce(struct work *work, uint32_t nonce);
 bool submit_nonce(struct thr_info *thr, struct work *work, uint32_t nonce);
+bool submit_nonce_1diff(struct thr_info *thr, struct work *work, uint32_t nonce);
 extern void tailsprintf(char *f, const char *fmt, ...);
 extern void wlogprint(const char *f, ...);
 extern int curses_int(const char *query);
