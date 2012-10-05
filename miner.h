@@ -51,6 +51,13 @@ void *alloca (size_t);
 # endif
 #endif
 
+/*
+ * Uncoment the line below to include memory protection
+ * for finding bad pointer bugs and read memory.h
+ * for how to use it
+ */
+// #include "memory.h"
+
 #if defined (__linux)
  #ifndef LINUX
   #define LINUX
