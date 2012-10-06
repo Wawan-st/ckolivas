@@ -6,6 +6,12 @@
 #define MAXTHREADS (0xFFFFFFFEULL)
 #define MAXBUFFERS (0x10)
 #define BUFFERSIZE (sizeof(uint32_t) * MAXBUFFERS)
+
+/*
+ * WARNING: postcalc_hash assumes that all bits are
+ * set below the first bit set
+ * so refer to that code if you change FOUND
+ */
 #define FOUND (0x0F)
 
 #ifdef HAVE_OPENCL

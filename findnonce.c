@@ -249,11 +249,31 @@ static void *postcalc_hash(void *userdata)
 	struct thr_info *thr = pcd->thr;
 	struct work *work = pcd->work;
 	unsigned int entry = 0;
+	uint32_t results;
+	bool hadzero = false;
 
 	pthread_detach(pthread_self());
 
-	for (entry = 0; entry < pcd->res[FOUND]; entry++) {
+	// WARNING this only works if FOUND has all bits set below the first bit set
+	results = pcd->res[FOUND] & FOUND;
+
+	if (results != pcd->res[FOUND]) {
+		applog(LOG_WARNING,
+			"GPU%d: HW error, corrupt found counter (0x%08x)",
+			thr->cgpu->device_id,
+			pcd->res[FOUND]);
+		thr->cgpu->hw_errors++;
+	}
+
+	for (entry = 0; entry < results; entry++) {
 		uint32_t nonce = pcd->res[entry];
+
+		if (nonce == 0) {
+			if (hadzero)
+				continue;
+			else
+				hadzero = true;
+		}
 
 		applog(LOG_DEBUG, "OCL NONCE %u found in slot %d", nonce, entry);
 		if (opt_scrypt)
