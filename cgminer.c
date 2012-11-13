@@ -4644,11 +4644,10 @@ static void *stratum_thread(void *userdata)
 
 		FD_ZERO(&rd);
 		FD_SET(pool->sock, &rd);
-		timeout.tv_sec = 90;
+		timeout.tv_sec = 120;
 		timeout.tv_usec = 0;
 
-		/* The protocol specifies that notify messages should be sent
-		 * every minute so if we fail to receive any for 90 seconds we
+		/* If we fail to receive any notify messages for 2 minutes we
 		 * assume the connection has been dropped and treat this pool
 		 * as dead */
 		if (unlikely(select(pool->sock + 1, &rd, NULL, NULL, &timeout) < 1))
@@ -5083,12 +5082,20 @@ static void set_work_target(struct work *work, int diff)
 	unsigned char rtarget[32], target[32];
 	uint64_t *data64, h64;
 
+	if (!diff) {
+		// Special support is needed for difficulties < 1
+		memset(target, 0xff, 28);
+		memset(&target[28], 0, 4);
+		goto havetarget;
+	}
+
 	h64 = diffone;
 	h64 /= (uint64_t)diff;
 	memset(rtarget, 0, 32);
 	data64 = (uint64_t *)(rtarget + 4);
 	*data64 = htobe64(h64);
 	swab256(target, rtarget);
+havetarget:
 	if (opt_debug) {
 		char *htarget = bin2hex(target, 32);
 
@@ -5185,7 +5192,7 @@ static void gen_stratum_work(struct pool *pool, struct work *work)
 	work->longpoll = false;
 	work->getwork_mode = GETWORK_MODE_STRATUM;
 	work->work_block = work_block;
-	calc_diff(work, work->sdiff);
+	calc_diff(work, 0);
 
 	gettimeofday(&work->tv_staged, NULL);
 }
