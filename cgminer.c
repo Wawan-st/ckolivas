@@ -3631,7 +3631,6 @@ static bool hash_push(struct work *work)
 	} else
 		rc = false;
 	pthread_cond_signal(&getq->cond);
-	mutex_unlock(stgd_lock);
 
 	work->pool->staged++;
 
@@ -3639,6 +3638,7 @@ static bool hash_push(struct work *work)
 		work->queued = false;
 		dec_queued(work->pool);
 	}
+	mutex_unlock(stgd_lock);
 
 	return rc;
 }
