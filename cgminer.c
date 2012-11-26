@@ -6922,19 +6922,11 @@ int main(int argc, char *argv[])
 	if (!thr->q)
 		quit(1, "Failed to tq_new");
 
-	/* start work I/O thread */
-	if (thr_info_create(thr, NULL, workio_thread, thr))
-		quit(1, "workio thread create failed");
-
 	stage_thr_id = mining_threads + 1;
 	thr = &thr_info[stage_thr_id];
 	thr->q = tq_new();
 	if (!thr->q)
 		quit(1, "Failed to tq_new");
-	/* start stage thread */
-	if (thr_info_create(thr, NULL, stage_thread, thr))
-		quit(1, "stage thread create failed");
-	pthread_detach(thr->pth);
 
 	/* Create a unique get work queue */
 	getq = tq_new();
@@ -7034,8 +7026,19 @@ begin_bench:
 				tq_push(thr->q, &ping);
 			}
 
-			if (cgpu->api->thread_prepare && !cgpu->api->thread_prepare(thr))
+			if (cgpu->api->thread_prepare && !cgpu->api->thread_prepare(thr)) {
+				tq_free(thr->q);
+				memmove(&thr_info[k], &thr_info[k+1], sizeof(*thr_info)*(total_threads-k-1));
+				memmove(&cgpu->thr[j], &cgpu->thr[j+1], sizeof(*cgpu->thr)*(cgpu->threads-j));
+				j--;
+				k--;
+				mining_threads--;
+				cgpu->threads--;
+				work_thr_id--;
+				stage_thr_id--;
+				total_threads--;
 				continue;
+			}
 
 			thread_reportout(thr);
 
@@ -7044,7 +7047,24 @@ begin_bench:
 
 			cgpu->thr[j] = thr;
 		}
+		if (0 == cgpu->threads) {
+			if (i+1 < total_devices)
+				memmove(&devices[i], &devices[i+1], sizeof(*devices)*(total_devices-i-1));
+			i--;
+			total_devices--;
+		}
 	}
+
+	/* start work I/O thread */
+	thr = &thr_info[work_thr_id];
+	if (thr_info_create(thr, NULL, workio_thread, thr))
+		quit(1, "workio thread create failed");
+
+	/* start stage thread */
+	thr = &thr_info[stage_thr_id];
+	if (thr_info_create(thr, NULL, stage_thread, thr))
+		quit(1, "stage thread create failed");
+	pthread_detach(thr->pth);
 
 #ifdef HAVE_OPENCL
 	applog(LOG_INFO, "%d gpu miner threads started", gpu_threads);
