@@ -859,7 +859,7 @@ struct stratum_work {
 	double diff;
 };
 
-#define RECVSIZE 8192
+#define RECVSIZE 81920
 #define RBUFSIZE (RECVSIZE + 4)
 
 struct pool {
