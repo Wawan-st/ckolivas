@@ -147,6 +147,7 @@ static bool ztex_updateFreq(struct libztex_device* ztex)
 
 
 static const int	MIN_MULT			= 49;
+static const int	TARGET_DEFAULT			= 2;
 static const int	TARGET_MAX			= 128;
 static const int	TARGET_MIN			= 2;
 static const float	MAX_ERROR			= 0.02;
@@ -211,6 +212,8 @@ static void ztex_clock_stats(struct thr_info *thr, int *accepted, int *errors, i
 	*accepted = ztex->shares_since_freq_change;
 	*errors = ztex->errors_since_freq_change;
 	*target = ztex->shares_target;
+
+	// applog(LOG_WARNING, "%s: C+:%u T:%u E:%u", ztex->repr, *accepted, *errors, *target);
 }
 
 static bool ztex_hashtest(struct libztex_device *ztex, struct work *work, struct libztex_hash_data *hdata) {
@@ -281,6 +284,8 @@ static bool ztex_checkNonce(struct libztex_device *ztex,
 	return true;
 }
 
+static int g_bad_share = 0, g_good_share = 0;
+
 static int64_t ztex_scanhash(struct thr_info *thr, struct work *work,
                               __maybe_unused int64_t max_nonce)
 {
@@ -293,10 +298,12 @@ static int64_t ztex_scanhash(struct thr_info *thr, struct work *work,
 	uint32_t nonce, noncecnt = 0;
 	bool overflow, found;
 	struct libztex_hash_data hdata[GOLDEN_BACKLOG];
-	int bad_share = 0, good_share = 0;
 
 	if (thr->cgpu->deven == DEV_DISABLED)
 		return -1;
+
+	g_bad_share = 0;
+	g_good_share = 0;
 
 	ztex = thr->cgpu->device_ztex;
 
@@ -364,10 +371,12 @@ static int64_t ztex_scanhash(struct thr_info *thr, struct work *work,
 		}
 		ztex_releaseFpga(ztex);
 
+		/*
 		if (thr->work_restart) {
 			applog(LOG_DEBUG, "%s: New work detected", ztex->repr);
 			break;
 		}
+		 */
 
 		/*
 		ztex->errorCount[ztex->freqM] *= 0.995;
@@ -391,7 +400,7 @@ static int64_t ztex_scanhash(struct thr_info *thr, struct work *work,
 #endif
 			if (!ztex_checkNonce(ztex, work, &hdata[i])) {
 			// if(!ztex_hashtest(ztex, work, &hdata[i])) {
-				bad_share++;
+				g_bad_share++;
 				thr->cgpu->hw_errors++;
 				continue;
 			}
@@ -416,14 +425,14 @@ static int64_t ztex_scanhash(struct thr_info *thr, struct work *work,
 						work->blk.nonce = 0xffffffff;
 						submit_nonce(thr, work, nonce);
 						applog(LOG_DEBUG, "%s: submitted %0.8x", ztex->repr, nonce);
-						good_share++;
+						g_good_share++;
 					}
 				}
 			}
 		}
 	}
-	if(!bad_share) {
-		if(good_share)
+	if(!g_bad_share) {
+		if(g_good_share)
 			ztex_good_share(ztex);
 	} else {
 		ztex_bad_share(ztex);
@@ -452,6 +461,13 @@ static int64_t ztex_scanhash(struct thr_info *thr, struct work *work,
 
 	return noncecnt;
 }
+
+
+static void ztex_hw_error(struct thr_info *thr) {
+
+	ztex_bad_share(thr->cgpu->device_ztex);
+}
+
 
 static void ztex_statline_before(char *buf, struct cgpu_info *cgpu)
 {
@@ -515,6 +531,7 @@ struct device_api ztex_api = {
 	.thread_prepare = ztex_prepare,
 	.scanhash = ztex_scanhash,
 	.thread_shutdown = ztex_shutdown,
-	.clock_stats = ztex_clock_stats
+	.clock_stats = ztex_clock_stats,
+	.hw_error = ztex_hw_error
 };
 
