@@ -77,7 +77,6 @@ struct libztex_device {
 	int errors_since_freq_change;
 	int shares_target;
 	int max_M;
-	int drop_count;
 
 	int16_t numberOfFpgas;
 	int selectedFpga;

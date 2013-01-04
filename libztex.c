@@ -688,7 +688,6 @@ int libztex_prepare_device(struct libusb_device *dev, struct libztex_device** zt
 	newdev->errors_since_freq_change = 0;
 	newdev->shares_target = 2;
 	newdev->max_M = 1000;
-	newdev->drop_count = 0;
 
 	applog(LOG_DEBUG, "PID: %d numNonces: %d offsNonces: %d freqM1: %f freqMaxM: %d freqM: %d suspendSupported: %s hashesPerClock: %f extraSolutions: %d",
 	                 buf[0], newdev->numNonces, newdev->offsNonces, newdev->freqM1, newdev->freqMaxM, newdev->freqM, newdev->suspendSupported ? "T": "F", 
@@ -879,21 +878,28 @@ int libztex_readHashData(struct libztex_device *ztex, struct libztex_hash_data n
 	}
 
 	for (i = 0; i < ztex->numNonces; i++) {
+		static unsigned char tid = 0;
+
 		memcpy((char *)&nonces[i].goldenNonce[0], &rbuf[i * bufsize], 4);
 		nonces[i].goldenNonce[0] -= ztex->offsNonces;
 
+		// applog(LOG_WARNING, "%d: %s: nonces[%d].goldenNonce[0] = %8.8x", tid, ztex->repr, i, nonces[i].goldenNonce[0]);
 		// applog(LOG_DEBUG, "W %d:0 %0.8x", i, nonces[i].goldenNonce[0]);
 
 		memcpy((char *)&nonces[i].nonce, &rbuf[i * bufsize + 4], 4);
 		nonces[i].nonce -= ztex->offsNonces;
+		// applog(LOG_WARNING, "%d: %s: nonces[%d].nonce = %8.8x", tid, ztex->repr, i, nonces[i].nonce);
 
 		memcpy((char *)&nonces[i].hash7, &rbuf[i * bufsize + 8], 4);
+		// applog(LOG_WARNING, "%d: %s: nonces[%d].hash7 = %8.8x", tid, ztex->repr, i, nonces[i].hash7);
 
 		for (j = 0; j < ztex->extraSolutions; j++) {
 			memcpy((char *)&nonces[i].goldenNonce[j + 1], &rbuf[i * bufsize + 12 + (j * 4)], 4);
 			nonces[i].goldenNonce[j+1] -= ztex->offsNonces;
 			//applog(LOG_DEBUG, "W %d:%d %0.8x", i, j+1, nonces[i].goldenNonce[j+1]);
+			// applog(LOG_WARNING, "%d: %s: nonces[%d].goldenNonce[%d] = %8.8x", tid, ztex->repr, i, j + 1, nonces[i].goldenNonce[j + 1]);
 		}
+		tid += 1;
 	}
 
 	free(rbuf);

@@ -5691,7 +5691,7 @@ static bool hashtest(struct thr_info *thr, struct work *work)
 	flip32(hash2_32, work->hash);
 
 	if (hash2_32[7] != 0) {
-		applog(LOG_WARNING, "%s%d: invalid nonce %8.8x - HW error",
+		applog(LOG_WARNING, "%s%d: HW error - invalid nonce 0x%8.8x",
 				thr->cgpu->api->name, thr->cgpu->device_id, *work_nonce);
 
 		mutex_lock(&stats_lock);
@@ -5699,10 +5699,13 @@ static bool hashtest(struct thr_info *thr, struct work *work)
 		thr->cgpu->hw_errors++;
 		mutex_unlock(&stats_lock);
 
-		if (thr->cgpu->api->hw_error)
+		if (thr->cgpu->api->hw_error) {
 			thr->cgpu->api->hw_error(thr);
+		}
 
 		goto out;
+	} else if(thr->cgpu->api->accepted) {
+		thr->cgpu->api->accepted(thr);
 	}
 
 	ret = fulltest(hash2, work->target);

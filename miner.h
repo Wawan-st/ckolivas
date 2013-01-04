@@ -290,6 +290,7 @@ struct device_api {
 	void (*thread_enable)(struct thr_info *);
 
 	void (*clock_stats)(struct thr_info *, int *accepted, int *errors, int *target);
+	void (*accepted)(struct thr_info *);
 };
 
 enum dev_enable {

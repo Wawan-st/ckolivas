@@ -27,6 +27,7 @@
 #include <sha2.h>
 #include "miner.h"
 #include "libztex.h"
+#include "uthash.h"
 
 #define GOLDEN_BACKLOG 5
 
@@ -176,6 +177,8 @@ static bool ztex_set_freq(struct libztex_device *ztex, int d) {
 static bool ztex_good_share(struct libztex_device *ztex) {
 
 	ztex->shares_since_freq_change += 1;
+	// applog(LOG_WARNING, "%s: valid: C+:%d T:%d E:%d", ztex->repr, ztex->shares_since_freq_change, ztex->shares_target, ztex->errors_since_freq_change);
+
 	if(ztex->shares_since_freq_change >= ztex->shares_target) {
 		ztex->shares_since_freq_change = 0;
 		ztex->errors_since_freq_change = 0;
@@ -192,6 +195,8 @@ static bool ztex_good_share(struct libztex_device *ztex) {
 static bool ztex_bad_share(struct libztex_device *ztex) {
 
 	ztex->errors_since_freq_change += 1;
+	// applog(LOG_WARNING, "%s: invalid: C+:%d T:%d E:%d", ztex->repr, ztex->shares_since_freq_change, ztex->shares_target, ztex->errors_since_freq_change);
+
 	if(ztex->errors_since_freq_change > MAX_ERROR * (float)ztex->shares_since_freq_change) {
 		ztex->shares_since_freq_change = 0;
 		ztex->errors_since_freq_change = 0;
@@ -216,19 +221,22 @@ static void ztex_clock_stats(struct thr_info *thr, int *accepted, int *errors, i
 	// applog(LOG_WARNING, "%s: C+:%u T:%u E:%u", ztex->repr, *accepted, *errors, *target);
 }
 
-static bool ztex_hashtest(struct libztex_device *ztex, struct work *work, struct libztex_hash_data *hdata) {
 
-	uint32_t *data32 = (uint32_t *)(work->data);
-	unsigned char swap[80];
-	uint32_t *swap32 = (uint32_t *)swap;
+static bool ztex_hashtest(struct libztex_device *ztex, struct work *work, uint32_t nonce) {
+
+	unsigned char data[80], swap[80];
+	uint32_t *data32 = (uint32_t *)(work->data), *swap32 = (uint32_t *)swap;
+	unsigned char hash[32];
 	unsigned char hash1[32];
 	unsigned char hash2[32];
 	uint32_t *hash2_32 = (uint32_t *)hash2;
 
+	memcpy(data, work->data, 80);
+	data32[18] = nonce;
 	flip80(swap32, data32);
 	sha2(swap, 80, hash1);
-	sha2(hash1, 32, work->hash);
-	flip32(hash2_32, work->hash);
+	sha2(hash1, 32, hash);
+	flip32(hash2_32, hash);
 
 	if (hash2_32[7] != 0) {
 		applog(LOG_WARNING, "%s: internal invalid nonce - HW error: %8.8x -> %8.8x", ztex->repr, *(uint32_t *)(&work->data[64 + 12]), hash2_32[7]);
@@ -237,6 +245,25 @@ static bool ztex_hashtest(struct libztex_device *ztex, struct work *work, struct
 	return true;
 }
 
+
+/*
+ * Each packet the ztex bitstream returns contains 2 possible valid
+ * nonces, a nonce used as a count, and a "check" word in the hash for
+ * the nonce used as a count.
+ *
+ * My guess is the author wanted to be able to poll the device to
+ * determine when the nonce was about to overflow.  Each poll can be
+ * checked for hardware errors by comparing the check word with a
+ * locally generated one.
+ *
+ * However, there are a couple of problems with this.  First, it really
+ * shouldn't be necessary to check for errors that often.  On submission
+ * of a valid share should be sufficient.
+ *
+ * Second, while this is an interesting idea, it would have been much
+ * better to include a flag indicating if one or both of the possible
+ * valid nonces were actually valid.
+ */
 
 static bool ztex_checkNonce(struct libztex_device *ztex,
                             struct work *work,
@@ -272,6 +299,7 @@ static bool ztex_checkNonce(struct libztex_device *ztex,
 #endif
 		// ztex->errorCount[ztex->freqM] += 1.0 / ztex->numNonces;
 		applog(LOG_WARNING, "%s: checkNonce failed using hdata check for %8.8x (%8.8x != %8.8x)", ztex->repr, hdata->nonce, swab32(hash2_32[7]), ((hdata->hash7 + 0x5be0cd19) & 0xFFFFFFFF));
+		// applog(LOG_WARNING, "%s: %8.8x %8.8x %8.8x %8.8x %8.8x %8.8x %8.8x %8.8x", ztex->repr, hash2_32[0], hash2_32[1], hash2_32[2], hash2_32[3], hash2_32[4], hash2_32[5], hash2_32[6], hash2_32[7]);
 		return false;
 	}
 	/*
@@ -284,26 +312,28 @@ static bool ztex_checkNonce(struct libztex_device *ztex,
 	return true;
 }
 
-static int g_bad_share = 0, g_good_share = 0;
+
+typedef struct nonce_list_s {
+	uint32_t	nonce;
+
+	UT_hash_handle	hh;
+} nonce_list_t;
+
 
 static int64_t ztex_scanhash(struct thr_info *thr, struct work *work,
                               __maybe_unused int64_t max_nonce)
 {
 	struct libztex_device *ztex;
 	unsigned char sendbuf[44];
-	int i, j, k;
-	uint32_t *backlog;
-	int backlog_p = 0, backlog_max;
+	int i, j, k, good_nonce = 0, bad_nonce = 0;
 	uint32_t *lastnonce;
 	uint32_t nonce, noncecnt = 0;
 	bool overflow, found;
 	struct libztex_hash_data hdata[GOLDEN_BACKLOG];
+	nonce_list_t *nonce_list = NULL, *cur, *tmp;
 
 	if (thr->cgpu->deven == DEV_DISABLED)
 		return -1;
-
-	g_bad_share = 0;
-	g_good_share = 0;
 
 	ztex = thr->cgpu->device_ztex;
 
@@ -335,19 +365,12 @@ static int64_t ztex_scanhash(struct thr_info *thr, struct work *work,
 		return -1;
 	}
 
-	/* Add an extra slot for detecting dupes that lie around */
-	backlog_max = ztex->numNonces * (2 + ztex->extraSolutions);
-	backlog = calloc(1, sizeof(uint32_t) * backlog_max);
-	if (backlog == NULL) {
-		applog(LOG_ERR, "%s: failed to allocate backlog[%d]", ztex->repr, backlog_max);
-		return -1;
-	}
-
 	overflow = false;
 
 	applog(LOG_DEBUG, "%s: entering poll loop", ztex->repr);
 	while (!(overflow || thr->work_restart)) {
 		nmsleep(250);
+		// nmsleep(50);
 		if (thr->work_restart) {
 			applog(LOG_DEBUG, "%s: New work detected", ztex->repr);
 			break;
@@ -364,76 +387,87 @@ static int64_t ztex_scanhash(struct thr_info *thr, struct work *work,
 				ztex_disable(thr);
 				applog(LOG_ERR, "%s: Failed to read hash data with err %d, giving up", ztex->repr, i);
 				free(lastnonce);
-				free(backlog);
 				ztex_releaseFpga(ztex);
 				return -1;
 			}
 		}
 		ztex_releaseFpga(ztex);
 
-		/*
-		if (thr->work_restart) {
-			applog(LOG_DEBUG, "%s: New work detected", ztex->repr);
-			break;
-		}
-		 */
-
-		/*
-		ztex->errorCount[ztex->freqM] *= 0.995;
-		ztex->errorWeight[ztex->freqM] = ztex->errorWeight[ztex->freqM] * 0.995 + 1.0;
-		 */
- 
 		for (i = 0; i < ztex->numNonces; i++) {
+
+			// first, examine counting nonce
 			nonce = hdata[i].nonce;
-#if defined(__BIGENDIAN__) || defined(MIPSEB)
-			nonce = swab32(nonce);
-#endif
+
+			// check counting nonce for hardware errors
+			if (!ztex_checkNonce(ztex, work, &hdata[i])) {
+				bad_nonce += 1;
+				thr->cgpu->hw_errors++;
+				continue;
+			}
+
+			// the nonce did not have a hardware error
+
+			/*
+			 * Determine how close we are to overflow.
+			 *
+			 * If we are closer to the end than we are to
+			 * the last nonce we had, we're going to
+			 * overflow before we come back.
+			 */
 			if (nonce > noncecnt)
 				noncecnt = nonce;
-			if (((0xffffffff - nonce) < (nonce - lastnonce[i])) || nonce < lastnonce[i]) {
+			if (((0xffffffff - nonce) < (nonce - lastnonce[i] + 10000)) || nonce < lastnonce[i]) {
 				applog(LOG_DEBUG, "%s: overflow nonce=%0.8x lastnonce=%0.8x", ztex->repr, nonce, lastnonce[i]);
 				overflow = true;
 			} else
 				lastnonce[i] = nonce;
-#if !(defined(__BIGENDIAN__) || defined(MIPSEB))
-			nonce = swab32(nonce);
-#endif
-			if (!ztex_checkNonce(ztex, work, &hdata[i])) {
-			// if(!ztex_hashtest(ztex, work, &hdata[i])) {
-				g_bad_share++;
-				thr->cgpu->hw_errors++;
-				continue;
-			}
-			for (j=0; j<=ztex->extraSolutions; j++) {
+
+			/*
+			 * We received 2 potential solutions in the
+			 * packet.  Check them.
+			 */
+			for (j = 0; j <= ztex->extraSolutions; j++) {
 				nonce = hdata[i].goldenNonce[j];
-				if (nonce > 0) {
-					found = false;
-					for (k = 0; k < backlog_max; k++) {
-						if (backlog[k] == nonce) {
-							found = true;
-							break;
-						}
-					}
-					if (!found) {
-						applog(LOG_DEBUG, "%s: Share found N%dE%d", ztex->repr, i, j);
-						backlog[backlog_p++] = nonce;
-						if (backlog_p >= backlog_max)
-							backlog_p = 0;
-#if defined(__BIGENDIAN__) || defined(MIPSEB)
-						nonce = swab32(nonce);
-#endif
-						work->blk.nonce = 0xffffffff;
-						submit_nonce(thr, work, nonce);
-						applog(LOG_DEBUG, "%s: submitted %0.8x", ztex->repr, nonce);
-						g_good_share++;
-					}
+
+				// have we checked this one yet?
+				HASH_FIND_INT(nonce_list, &nonce, cur);
+				if(cur) {
+					continue;
 				}
+
+				// we haven't checked (for this work item)
+				if(!(cur = malloc(sizeof(*cur)))) {
+					applog(LOG_ERR, "%s: out of memory", ztex->repr);
+					goto outexit;
+				}
+				memset(cur, 0, sizeof(*cur));
+				cur->nonce = nonce;
+				HASH_ADD_INT(nonce_list, nonce, cur);
+
+				// check to see if it is valid
+				if(!ztex_hashtest(ztex, work, nonce)) {
+					// failed, don't submit
+					continue;
+				}
+
+				// valid
+				submit_nonce(thr, work, nonce);
+				applog(LOG_DEBUG, "%s: submitted %0.8x", ztex->repr, nonce);
+				good_nonce += 1;
 			}
 		}
 	}
-	if(!g_bad_share) {
-		if(g_good_share)
+
+	// remove our repeat list
+	HASH_ITER(hh, nonce_list, cur, tmp) {
+		HASH_DEL(nonce_list, cur);
+		free(cur);
+	}
+
+	if(!bad_nonce) {
+		if(good_nonce) {
 			ztex_good_share(ztex);
+		}
 	} else {
 		ztex_bad_share(ztex);
 	}
@@ -452,20 +486,14 @@ static int64_t ztex_scanhash(struct thr_info *thr, struct work *work,
 	}
 	 */
 
+outexit:
 	applog(LOG_DEBUG, "%s: exit %1.8X", ztex->repr, noncecnt);
 
 	work->blk.nonce = 0xffffffff;
 
 	free(lastnonce);
-	free(backlog);
 
 	return noncecnt;
-}
-
-
-static void ztex_hw_error(struct thr_info *thr) {
-
-	ztex_bad_share(thr->cgpu->device_ztex);
 }
 
 
@@ -531,7 +559,6 @@ struct device_api ztex_api = {
 	.thread_prepare = ztex_prepare,
 	.scanhash = ztex_scanhash,
 	.thread_shutdown = ztex_shutdown,
-	.clock_stats = ztex_clock_stats,
-	.hw_error = ztex_hw_error
+	.clock_stats = ztex_clock_stats
 };
 
