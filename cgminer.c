@@ -1983,7 +1983,7 @@ static void curses_print_status(void)
 	snprintf(shares_buf + strlen(shares_buf), sizeof(shares_buf) - strlen(shares_buf), "        ");
 
 	snprintf(pot_buf, sizeof(pot_buf), "   (%%%.0Lf)  ", 100.0L * g_total_pot / g_total_pps);
-	for(i = 0; i < strlen(pot_buf); i++)
+	for(i = 0; i < (int)strlen(pot_buf); i++)
 		pps_buf[i] = ' ';
 	pps_buf[strlen(pot_buf)] = 0;
 
@@ -2448,7 +2448,7 @@ static block_stat_t *stats_addblock() {
 	} else {
 		if(!(bs = malloc(sizeof(block_stat_t)))) {
 			perror("malloc");
-			return;
+			return 0;
 		}
 		memset(bs, 0, sizeof(*bs));
 		bs->time.time = now;
@@ -2537,7 +2537,7 @@ static share_stat_t *stats_addshare(long double sd, long double td, long double 
 
 	if(!(ss = malloc(sizeof(share_stat_t)))) {
 		perror("malloc");
-		return;
+		return 0;
 	}
 	memset(ss, 0, sizeof(*ss));
 	ss->time.time = now;
@@ -4949,14 +4949,12 @@ static void stratum_share_result(json_t *val, json_t *res_val, json_t *err_val,
 	char hashshow[65];
 	uint32_t *hash32;
 	char diffdisp[16];
-	int intdiff;
 	long double wd, sd;
 
 	wd = work_target_difficulty(work);
 	sd = share_difficulty(work);
 
 	hash32 = (uint32_t *)(work->hash);
-	intdiff = floor(work->work_difficulty);
 	suffix_string(sharediff, diffdisp, 0);
 	/*
 	sprintf(hashshow, "%08lx Diff %s/%d%s", (unsigned long)(hash32[6]), diffdisp, intdiff,
