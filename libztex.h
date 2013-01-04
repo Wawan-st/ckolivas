@@ -73,6 +73,12 @@ struct libztex_device {
 	double errorRate[256];
 	double maxErrorRate[256];
 
+	int shares_since_freq_change;
+	int errors_since_freq_change;
+	int shares_target;
+	int max_M;
+	int drop_count;
+
 	int16_t numberOfFpgas;
 	int selectedFpga;
 	bool parallelConfigSupport;

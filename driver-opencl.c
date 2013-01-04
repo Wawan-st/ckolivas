@@ -1299,7 +1299,8 @@ static void get_opencl_statline_before(char *buf, struct cgpu_info *gpu)
 		else
 			tailsprintf(buf, "        ");
 		tailsprintf(buf, "| ");
-	}
+	} else
+		tailsprintf(buf, "             |        | ");
 }
 #endif
 

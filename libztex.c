@@ -684,6 +684,12 @@ int libztex_prepare_device(struct libusb_device *dev, struct libztex_device** zt
 	newdev->hashesPerClock = buf[0] > 2? (((buf[8] & 255) | ((buf[9] & 255) << 8)) + 1) / 128.0: 1.0;
 	newdev->extraSolutions = buf[0] > 4? buf[10]: 0;
 
+	newdev->shares_since_freq_change = 0;
+	newdev->errors_since_freq_change = 0;
+	newdev->shares_target = 8;
+	newdev->max_M = 1000;
+	newdev->drop_count = 0;
+
 	applog(LOG_DEBUG, "PID: %d numNonces: %d offsNonces: %d freqM1: %f freqMaxM: %d freqM: %d suspendSupported: %s hashesPerClock: %f extraSolutions: %d",
 	                 buf[0], newdev->numNonces, newdev->offsNonces, newdev->freqM1, newdev->freqMaxM, newdev->freqM, newdev->suspendSupported ? "T": "F", 
 	                 newdev->hashesPerClock, newdev->extraSolutions);
@@ -703,7 +709,7 @@ int libztex_prepare_device(struct libusb_device *dev, struct libztex_device** zt
 
 	newdev->usbbus = libusb_get_bus_number(dev);
 	newdev->usbaddress = libusb_get_device_address(dev);
-	sprintf(newdev->repr, "ZTEX %s-1", newdev->snString);
+	sprintf(newdev->repr, "ZTEX %s-0", newdev->snString);
 	return 0;
 }
 

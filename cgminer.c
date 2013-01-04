@@ -194,7 +194,7 @@ long double g_pps_last_30mins, g_pps_last_hr = 0, g_pps_last_24hrs = 0;
 long double g_pot_last_30mins, g_pot_last_hr = 0, g_pot_last_24hrs = 0;
 
 long double g_avg_seconds_per_block = 0;
-unsigned long long g_cur_block_time = 0, g_blocks_total = 0, g_blocks_total_time = 0, g_blocks_last_hr = 0, g_blocks_last_24hrs = 0;
+unsigned long long g_cur_block_time = 0, g_blocks_total = 0, g_blocks_total_time = 0, g_blocks_last_hr = 0, g_blocks_time_last_hr = 0, g_blocks_last_24hrs = 0, g_blocks_time_last_24hrs = 0;
 static time_t g_first_block_started = 0, g_last_block_started = 0;
 static time_t g_first_stat = 0, g_last_stat = 0;
 
@@ -1924,6 +1924,7 @@ static void curses_print_status(void)
 	int i;
 	char pps_buf[256], pot_buf[256], block_buf[256], shares_buf[256];
 	time_t now = time(0);
+	long double hps = (powl(2.0L, 48.0L) / (powl(2.0L, 16.0L) - 1));
 
 	wattron(statuswin, A_BOLD);
 	mvwprintw(statuswin, 0, 0, " " PACKAGE " version " VERSION " - Started: %s", datestamp);
@@ -1960,25 +1961,25 @@ static void curses_print_status(void)
 	snprintf(block_buf, sizeof(block_buf), "Current block time: %llu secs  Total blocks: %llu (%.2Lf secs/block)", g_cur_block_time, g_blocks_total, g_avg_seconds_per_block);
 	if((g_first_block_started != 0) && (now - g_first_block_started >= 60 * 60))
 		snprintf(block_buf + strlen(block_buf), sizeof(block_buf) - strlen(block_buf),
-		   "  Last hr: %llu (%.2Lf secs/block)", g_blocks_last_hr, 60 * 60.0L / ((long double)g_blocks_last_hr));
+		   "  Last hr: %llu (%.2Lf secs/block)", g_blocks_last_hr, ((long double)g_blocks_time_last_hr) / ((long double)g_blocks_last_hr));
 	if((g_first_block_started != 0) && (now - g_first_block_started >= 24 * 60 * 60))
 		snprintf(block_buf + strlen(block_buf), sizeof(block_buf) - strlen(block_buf),
-		   "  Last 24hrs: %llu (%.2Lf secs/block)", g_blocks_last_24hrs, 24 * 60 * 60.0L / ((long double)g_blocks_last_24hrs));
+		   "  Last 24hrs: %llu (%.2Lf secs/block)", g_blocks_last_24hrs, ((long double)g_blocks_time_last_24hrs) / ((long double)g_blocks_last_24hrs));
 	snprintf(block_buf + strlen(block_buf), sizeof(block_buf) - strlen(block_buf), "        ");
 
-	snprintf(shares_buf, sizeof(shares_buf), "Total shares: %.4Lf (%.4Lf/s)", g_total_target_difficulty_accepted, g_avg_sps);
+	snprintf(shares_buf, sizeof(shares_buf), "Total shares: %.2Lf (%.3Lf Gh/s)", g_total_target_difficulty_accepted, hps * g_avg_sps / 1e9);
 	if((g_first_stat != 0) && (now - g_first_stat >= 60))
 		snprintf(shares_buf + strlen(shares_buf), sizeof(shares_buf) - strlen(shares_buf),
-		   "  Last min: %.4Lf (%.4Lf/s)", g_s_last_min, g_avg_sps_last_min);
+		   "  Last min: %.2Lf (%.3Lf Gh/s)", g_s_last_min, hps * g_avg_sps_last_min / 1e9);
 	if((g_first_stat != 0) && (now - g_first_stat >= 30 * 60))
 		snprintf(shares_buf + strlen(shares_buf), sizeof(shares_buf) - strlen(shares_buf),
-		   "  Last 30mins: %.4Lf (%.4Lf/s)", g_s_last_30mins, g_avg_sps_last_30mins);
+		   "  Last 30mins: %.2Lf (%.3Lf Gh/s)", g_s_last_30mins, hps * g_avg_sps_last_30mins / 1e9);
 	if((g_first_stat != 0) && (now - g_first_stat >= 60 * 60))
 		snprintf(shares_buf + strlen(shares_buf), sizeof(shares_buf) - strlen(shares_buf),
-		   "  Last hr: %.4Lf (%.4Lf/s)", g_s_last_hr, g_avg_sps_last_hr);
+		   "  Last hr: %.2Lf (%.3Lf Gh/s)", g_s_last_hr, hps * g_avg_sps_last_hr / 1e9);
 	if((g_first_stat != 0) && (now - g_first_stat >= 24 * 60 * 60))
 		snprintf(shares_buf + strlen(shares_buf), sizeof(shares_buf) - strlen(shares_buf),
-		   "  Last 24hrs: %.4Lf (%.4Lf/s)", g_s_last_24hrs, g_avg_sps_last_24hrs);
+		   "  Last 24hrs: %.2Lf (%.3Lf Gh/s)", g_s_last_24hrs, hps * g_avg_sps_last_24hrs / 1e9);
 	snprintf(shares_buf + strlen(shares_buf), sizeof(shares_buf) - strlen(shares_buf), "        ");
 
 	snprintf(pot_buf, sizeof(pot_buf), "   (%%%.0Lf)  ", 100.0L * g_total_pot / g_total_pps);
@@ -2013,8 +2014,9 @@ static void curses_print_status(void)
 	mvwprintw(statuswin, 10, 0, "%s", pot_buf);
 	mvwhline(statuswin, 11, 0, '-', 80);
 	mvwhline(statuswin, statusy - 1, 0, '-', 80);
-	mvwprintw(statuswin, devcursor - 1, 1, "[P]ool management %s[S]ettings [D]isplay options [Q]uit",
+	mvwprintw(statuswin, devcursor - 2, 1, "[P]ool management %s[S]ettings [D]isplay options [Q]uit",
 		have_opencl ? "[G]PU management " : "");
+	mvwhline(statuswin, devcursor - 1, 0, '-', 80);
 }
 
 static void adj_width(int var, int *length)
@@ -2032,6 +2034,7 @@ static void curses_print_devstatus(int thr_id)
 	char logline[256];
 	char displayed_hashes[16], displayed_rolling[16];
 	uint64_t dh64, dr64;
+	int accepted, errors, target;
 
 	if (devcursor + cgpu->cgminer_id > LINES - 2 || opt_compact)
 		return;
@@ -2068,12 +2071,14 @@ static void curses_print_devstatus(int thr_id)
 	adj_width(cgpu->hw_errors, &hwwidth);
 	adj_width(cgpu->utility, &uwidth);
 
-	wprintw(statuswin, "/%6sh/s | A:%*d R:%*d HW:%*d U:%*.2f/m",
-			displayed_hashes,
-			awidth, cgpu->accepted,
-			rwidth, cgpu->rejected,
-			hwwidth, cgpu->hw_errors,
-		uwidth + 3, cgpu->utility);
+	if(cgpu->api->clock_stats) {
+		cgpu->api->clock_stats(&thr_info[thr_id], &accepted, &errors, &target);
+		wprintw(statuswin, "/%6sh/s | A:%*d R:%*d HW:%*d U:%*.2f/m  C+:%d T:%d E:%d",
+		   displayed_hashes, awidth, cgpu->accepted, rwidth, cgpu->rejected, hwwidth, cgpu->hw_errors, uwidth + 3, cgpu->utility, accepted, target, errors);
+	} else {
+		wprintw(statuswin, "/%6sh/s | A:%*d R:%*d HW:%*d U:%*.2f/m",
+		   displayed_hashes, awidth, cgpu->accepted, rwidth, cgpu->rejected, hwwidth, cgpu->hw_errors, uwidth + 3, cgpu->utility);
+	}
 
 	if (cgpu->api->get_statline) {
 		logline[0] = '\0';
@@ -2464,6 +2469,11 @@ static block_stat_t *stats_addblock() {
 }
 
 
+/*
+ * Return the number of blocks found in the last n seconds.
+ *
+ * Note: This only considers when a block is found.
+ */
 static unsigned long long block_lastn(int n) {
 
 	time_t now = time(0);
@@ -2484,6 +2494,33 @@ static unsigned long long block_lastn(int n) {
 	pthread_mutex_unlock(&g_stats_lock);
 
 	return nblocks;
+}
+
+
+/*
+ * Return the amount of time all blocks found in the last n seconds took
+ * to generate.
+ */
+static unsigned long long block_time_lastn(int n) {
+
+	time_t now = time(0);
+	block_stat_t *p, *next;
+	unsigned long long total_time = 0;
+
+	pthread_mutex_lock(&g_stats_lock);
+	for(p = g_block_stat; p;) {
+		next = p->hh.next;
+		if(now <= p->time.time + n) {
+			total_time += p->time.time - p->start_time;
+		} else if(p->time.time + SPD + 1 < now) {
+			HASH_DEL(g_block_stat, p);
+			free(p);
+		}
+		p = next;
+	}
+	pthread_mutex_unlock(&g_stats_lock);
+
+	return total_time;
 }
 
 
@@ -2634,7 +2671,9 @@ share_result(json_t *val, json_t *res, json_t *err, const struct work *work,
 		g_cur_block_time = (g_last_block_started > 0)? (time(0) - g_last_block_started) : 0;
 		g_avg_seconds_per_block = (g_blocks_total > 0)? ((long double)g_blocks_total_time) / ((long double)g_blocks_total) : 0;
 		g_blocks_last_hr = block_lastn(60 * 60);
+		g_blocks_time_last_hr = block_time_lastn(60 * 60);
 		g_blocks_last_24hrs = block_lastn(24 * 60 * 60);
+		g_blocks_time_last_24hrs = block_time_lastn(24 * 60 * 60);
 
 		// finished changing global stats
 		mutex_unlock(&stats_lock);
@@ -4356,7 +4395,6 @@ void zero_stats(void)
 	total_secs = 1.0;
 	best_diff = 0;
 	total_diff1 = 0;
-	memset(best_share, 0, 8);
 	suffix_string(best_diff, best_share, 0);
 
 	for (i = 0; i < total_pools; i++) {
@@ -5644,6 +5682,7 @@ static bool hashtest(struct thr_info *thr, struct work *work)
 	unsigned char hash2[32];
 	uint32_t *hash2_32 = (uint32_t *)hash2;
 	bool ret = false;
+	uint32_t *work_nonce = (uint32_t *)(work->data + 64 + 12);
 
 	flip80(swap32, data32);
 	sha2(swap, 80, hash1);
@@ -5651,8 +5690,8 @@ static bool hashtest(struct thr_info *thr, struct work *work)
 	flip32(hash2_32, work->hash);
 
 	if (hash2_32[7] != 0) {
-		applog(LOG_WARNING, "%s%d: invalid nonce - HW error",
-				thr->cgpu->api->name, thr->cgpu->device_id);
+		applog(LOG_WARNING, "%s%d: invalid nonce %8.8x - HW error",
+				thr->cgpu->api->name, thr->cgpu->device_id, *work_nonce);
 
 		mutex_lock(&stats_lock);
 		hw_errors++;
@@ -6857,7 +6896,7 @@ int main(int argc, char *argv[])
 #endif
 
 	// devcursor = 8;
-	devcursor = 13;
+	devcursor = 14;
 	logstart = devcursor + 1;
 	logcursor = logstart + 1;
 
