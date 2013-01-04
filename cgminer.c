@@ -2034,7 +2034,6 @@ static void curses_print_devstatus(int thr_id)
 	char logline[256];
 	char displayed_hashes[16], displayed_rolling[16];
 	uint64_t dh64, dr64;
-	int accepted, errors, target;
 
 	if (devcursor + cgpu->cgminer_id > LINES - 2 || opt_compact)
 		return;
@@ -2072,6 +2071,8 @@ static void curses_print_devstatus(int thr_id)
 	adj_width(cgpu->utility, &uwidth);
 
 	if(cgpu->api->clock_stats) {
+		int accepted, errors, target;
+
 		cgpu->api->clock_stats(&thr_info[thr_id], &accepted, &errors, &target);
 		wprintw(statuswin, "/%6sh/s | A:%*d R:%*d HW:%*d U:%*.2f/m  C+:%d T:%d E:%d",
 		   displayed_hashes, awidth, cgpu->accepted, rwidth, cgpu->rejected, hwwidth, cgpu->hw_errors, uwidth + 3, cgpu->utility, accepted, target, errors);
