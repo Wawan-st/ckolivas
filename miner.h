@@ -1,7 +1,9 @@
 #ifndef __MINER_H__
 #define __MINER_H__
 
+#ifdef HAS_CONFIG
 #include "config.h"
+#endif
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -12,6 +14,18 @@
 #include "elist.h"
 #include "uthash.h"
 #include "logging.h"
+enum dev_reason {
+	REASON_THREAD_FAIL_INIT,
+	REASON_THREAD_ZERO_HASH,
+	REASON_THREAD_FAIL_QUEUE,
+	REASON_DEV_SICK_IDLE_60,
+	REASON_DEV_DEAD_IDLE_600,
+	REASON_DEV_NOSTART,
+	REASON_DEV_OVER_HEAT,
+	REASON_DEV_THERMAL_CUTOFF,
+	REASON_DEV_COMMS_ERROR,
+	REASON_DEV_THROTTLE,
+};
 #include "util.h"
 
 #ifdef HAVE_OPENCL
@@ -308,19 +322,6 @@ enum cl_kernels {
 	KL_SCRYPT,
 };
 
-enum dev_reason {
-	REASON_THREAD_FAIL_INIT,
-	REASON_THREAD_ZERO_HASH,
-	REASON_THREAD_FAIL_QUEUE,
-	REASON_DEV_SICK_IDLE_60,
-	REASON_DEV_DEAD_IDLE_600,
-	REASON_DEV_NOSTART,
-	REASON_DEV_OVER_HEAT,
-	REASON_DEV_THERMAL_CUTOFF,
-	REASON_DEV_COMMS_ERROR,
-	REASON_DEV_THROTTLE,
-};
-
 #define REASON_NONE			"None"
 #define REASON_THREAD_FAIL_INIT_STR	"Thread failed to init"
 #define REASON_THREAD_ZERO_HASH_STR	"Thread got zero hashes"
@@ -532,7 +533,7 @@ static inline void string_elist_add(const char *s, struct list_head *head)
 {
 	struct string_elist *n;
 
-	n = calloc(1, sizeof(*n));
+	n = (struct string_elist *)calloc(1, sizeof(*n));
 	n->string = strdup(s);
 	n->free_me = true;
 	list_add_tail(&n->list, head);
@@ -553,8 +554,8 @@ static inline uint32_t swab32(uint32_t v)
 
 static inline void swap256(void *dest_p, const void *src_p)
 {
-	uint32_t *dest = dest_p;
-	const uint32_t *src = src_p;
+	uint32_t *dest = (uint32_t *)dest_p;
+	const uint32_t *src = (const uint32_t *)src_p;
 
 	dest[0] = src[7];
 	dest[1] = src[6];
@@ -568,8 +569,8 @@ static inline void swap256(void *dest_p, const void *src_p)
 
 static inline void swab256(void *dest_p, const void *src_p)
 {
-	uint32_t *dest = dest_p;
-	const uint32_t *src = src_p;
+	uint32_t *dest = (uint32_t *)dest_p;
+	const uint32_t *src = (const uint32_t *)src_p;
 
 	dest[0] = swab32(src[7]);
 	dest[1] = swab32(src[6]);
@@ -583,8 +584,8 @@ static inline void swab256(void *dest_p, const void *src_p)
 
 static inline void flip32(void *dest_p, const void *src_p)
 {
-	uint32_t *dest = dest_p;
-	const uint32_t *src = src_p;
+	uint32_t *dest = (uint32_t *)dest_p;
+	const uint32_t *src = (const uint32_t *)src_p;
 	int i;
 
 	for (i = 0; i < 8; i++)
@@ -593,8 +594,8 @@ static inline void flip32(void *dest_p, const void *src_p)
 
 static inline void flip80(void *dest_p, const void *src_p)
 {
-	uint32_t *dest = dest_p;
-	const uint32_t *src = src_p;
+	uint32_t *dest = (uint32_t *)dest_p;
+	const uint32_t *src = (const uint32_t *)src_p;
 	int i;
 
 	for (i = 0; i < 20; i++)
@@ -784,7 +785,7 @@ extern struct cgpu_info **devices;
 extern int total_pools;
 extern struct pool **pools;
 extern const char *algo_names[];
-extern enum sha256_algos opt_algo;
+// extern enum sha256_algos opt_algo;
 extern struct strategies strategies[];
 extern enum pool_strategy pool_strategy;
 extern int opt_rotate_period;

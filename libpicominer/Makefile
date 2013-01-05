@@ -1,6 +1,6 @@
 NAME		= picominer
 OFILES		= picominer.o
-CPPFLAGS	= -W -Wall -O2 -fpic -DLINUX -DPOSIX -I.. -I../libblkmaker -I/usr/src/picocomputing-5.0.6.1/software/include -I/usr/src/picocomputing-5.0.6.1/software/include/linux
+CPPFLAGS	= -W -Wall -O2 -fpic -DLINUX -DPOSIX -I/usr/include/libusb-1.0/ -I.. -I../libblkmaker -I/usr/src/picocomputing-5.0.6.1/software/include -I/usr/src/picocomputing-5.0.6.1/software/include/linux
 LDFLAGS		=
 CC		= g++
 LIBRARY		= lib${NAME}.a

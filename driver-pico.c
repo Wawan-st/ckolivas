@@ -18,8 +18,7 @@
 #include <sha2.h>
 #include <errno.h>
 
-#include "dynclock.h"
-#include "fpgautils.h"
+//#include "fpgautils.h"
 #include "miner.h"
 #include "logging.h"
 
@@ -57,13 +56,13 @@ static void pico_detect() {
 	if(fpgacount > 0)
 		applog(LOG_NOTICE, "Found %d Pico M-50x board%s", fpgacount, (fpgacount > 1)? "s" : "");
 	else
-		return 0;
+		return;
 
 	for(p = devices, i = 0; p; p = p->next, i++) {
 		if(!(cgpu_info = malloc(sizeof(cgpu_info_t)))) {
 			applog(LOG_ERR, "error: malloc: %s", strerror(errno));
 			picominer_destroy_device_list(devices);
-			return -1;
+			return;
 		}
 		memset(cgpu_info, 0, sizeof(cgpu_info_t));
 		cgpu_info->api = &pico_api;
@@ -72,11 +71,9 @@ static void pico_detect() {
 		snprintf(p->dev->device_name, sizeof(p->dev->device_name), "p%x", p->dev->device_model);
 		cgpu_info->name = strdup(p->dev->device_name);
 		add_cgpu(cgpu_info);
-		applog(LOG_NOTICE, "%s %u: Found Pico (Pico %s)", cgpu_info->api->name, cgpu_info->device_id, cgpu_info->name);
+		applog(LOG_NOTICE, "%s-%d: Found Pico (Pico %s)", cgpu_info->api->name, cgpu_info->device_id, cgpu_info->name);
 	}
 	picominer_destroy_list(devices);
-
-	return fpgacount;
 }
 
 
@@ -93,12 +90,35 @@ static int64_t calc_hashes(struct timeval *tv_workstart, unsigned int device_fre
 }
 
 
+static bool test_nonce(struct work *work, uint32_t nonce) {
+
+	unsigned char hash[32], hash1[32], hash2[32], data[128], swap[80];
+	uint32_t *data32 = (uint32_t *)data;
+	uint32_t *swap32 = (uint32_t *)swap;
+	uint32_t *hash32 = (uint32_t *)hash;
+	uint32_t *work_nonce = (uint32_t *)(data + 64 + 12);
+	bool ret = false;
+
+	memcpy(data, work->data, sizeof(work->data));
+	*work_nonce = nonce;
+	flip80(swap32, data32);
+	sha2(swap, 80, hash1);
+	sha2(hash1, 32, hash2);
+	flip32(hash32, hash2);
+
+	if (hash32[7] != 0)
+		return false;
+	return true;
+}
+
+
 static int64_t pico_process_results(struct thr_info *thr) {
 
 	struct cgpu_info *cgpu = thr->cgpu;
 	picominer_device *device = thr->cgpu->device_pico;
+	int r;
 	uint32_t nonce, v;
-	int64_t hashes = 0;
+	int64_t hashes = 0, lasthashes;
 	bool overflow = false;
 	struct timeval tv_now, tv_workend, elapsed;
 
@@ -143,7 +163,7 @@ static int64_t pico_process_results(struct thr_info *thr) {
 
 		// check for overflow: if we're closer to the end then we are to the last count, we're going to overflow
 		if(((0xffffffff - hashes) < (hashes - lasthashes))) {
-			applog(LOG_DEBUG, "%s: overflow nonce=%0.8x lastnonce=%0.8x", ztex->repr, nonce, lastnonce[i]);
+			applog(LOG_DEBUG, "%s-%d: overflow hashes = 0x%8.8x  lasthashes = 0x%8.8x", cgpu->api->name, cgpu->device_id, hashes, lasthashes);
 			overflow = true;
 		}
 
@@ -229,9 +249,11 @@ static bool pico_init(struct thr_info *thr) {
 	applog(LOG_NOTICE, "%s-%d: loading bitstream: ``%s''", cgpu->api->name, cgpu->device_id, device->bitfile_name);
 	if(picominer_prepare_device(device))
 		return false;
+	applog(LOG_NOTICE, "%s-%d: bitstream loaded", cgpu->api->name, cgpu->device_id);
 
 	gettimeofday(&now, NULL);
 	get_datestamp(cgpu->init, &now);
+	device->is_ready = 1;
 
 	return true;
 }

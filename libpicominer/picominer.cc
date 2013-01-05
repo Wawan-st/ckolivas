@@ -345,13 +345,15 @@ static picominer_device *picominer_create_device(PicoDrv *pd, const char *bitstr
 }
 
 
-static int picominer_prepare_device(picominer_device *dev) {
+int picominer_prepare_device(picominer_device *dev) {
 
 	char filename[PATH_MAX];
+	PicoDrv *pd;
 
 	snprintf(filename, sizeof(filename), "/usr/local/bin/bitstreams/%s", dev->bitfile_name);
 
-	if(dev->pd->LoadFPGA(filename) < 0) {
+	pd = (PicoDrv *)dev->pd;
+	if(pd->LoadFPGA(filename) < 0) {
 		return -1;
 	}
 	if(create_and_flush(dev) < 0) {
@@ -363,7 +365,8 @@ static int picominer_prepare_device(picominer_device *dev) {
 	}
 
 	// give thread a chance to start
-	nmsleep(10);
+	usleep(1000);
+	dev->is_ready = 1;
 
 	return 0;
 }
@@ -437,9 +440,15 @@ int picominer_get_stats(picominer_device *dev, float *t, float *v, float *i) {
 
 	PicoDrv *pd = (PicoDrv *)dev->pd;
 
-	if(pd->GetSysMon(t, v, i)) {
-		fprintf(stderr, "error: GetSysMon\n");
-		return -1;
+	if(dev->is_ready) {
+		if(pd->GetSysMon(t, v, i)) {
+			fprintf(stderr, "error: GetSysMon\n");
+			return -1;
+		}
+	} else {
+		*t = 0;
+		*v = 0;
+		*i = 0;
 	}
 
 	return 0;

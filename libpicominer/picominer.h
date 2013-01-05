@@ -11,7 +11,6 @@ extern "C" {
 struct picominer_device_s;
 
 #include "miner.h"
-#include "dynclock.h"
 
 
 typedef struct data_list_s {
@@ -21,10 +20,10 @@ typedef struct data_list_s {
 
 
 typedef struct picominer_device_s {
+	int			is_ready;
 	char			device_name[32];
 	char			bitfile_name[64];
 	unsigned int		device_model;
-	bool			is_work_running;	// if the fpga is working
 	struct work		work;			// the current submitted work
 	struct work		last_work;		// the last work we were given
 	unsigned char		next_work[44];		// buffer containing the representation of the work given to the fpga
@@ -58,6 +57,7 @@ void picominer_destroy_device(picominer_device *);
 void picominer_destroy_device_list(picominer_dev_list *);
 void picominer_destroy_list(picominer_dev_list *);
 int picominer_get_stats(picominer_device *, float *, float *, float *);
+int picominer_prepare_device(picominer_device *dev);
 #ifdef __cplusplus
 }
 #endif

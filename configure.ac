@@ -167,7 +167,7 @@ else
 fi
 
 AC_CHECK_LIB(pthread, pthread_create, ,
-        AC_MSG_ERROR([Could not find pthread library - please install libpthread]))
+        AC_MSG_ERROR([echo "Could not find pthread library - please install libpthread"]))
 PTHREAD_LIBS=-lpthread
 
 AC_CHECK_LIB(jansson, json_loads, request_jansson=false, request_jansson=true)
@@ -248,9 +248,9 @@ fi
 AM_CONDITIONAL([HAS_ZTEX], [test x$ztex = xyes])
 
 
-AC_CHECK_LIB(picominer, picominer_loads, [libpicominer=yes], [Could not find picominer library],)
+AC_CHECK_LIB(picominer, picominer_loads, [libpicominer=yes], [libpicominer=no])
 AC_ARG_ENABLE([pico],
-	[AC_HELP_STRING([--disable-pico],[Compile support for Pico (default disabled)])],
+	[AC_HELP_STRING([--enable-pico],[Compile support for Pico (default disabled)])],
 	[pico=$enableval],
 	[pico=no]
 )
