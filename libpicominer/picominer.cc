@@ -331,40 +331,41 @@ flush:
 
 static picominer_device *picominer_create_device(PicoDrv *pd, const char *bitstream_filename) {
 
-	char filename[PATH_MAX];
 	picominer_device *dev;
-
-	// set bitstream filename
-	snprintf(filename, sizeof(filename), "/usr/local/bin/bitstreams/%s", bitstream_filename);
 
 	// get memory for device structure
 	if(!(dev = (picominer_device *)malloc(sizeof(*dev))))
 		return 0;
 	memset(dev, 0, sizeof(*dev));
 	dev->pd = pd;
+	snprintf(dev->bitfile_name, sizeof(dev->bitfile_name), "%s", bitstream_filename);
+	dev->devfreq = 200;
 
-	fprintf(stderr, "info: loading bitstream ``%s''\n", bitstream_filename);
-	if(pd->LoadFPGA(filename) < 0) {
-		fprintf(stderr, "error: LoadFPGA failed\n");
-		free(dev);
-		return 0;
+	return dev;
+}
+
+
+static int picominer_prepare_device(picominer_device *dev) {
+
+	char filename[PATH_MAX];
+
+	snprintf(filename, sizeof(filename), "/usr/local/bin/bitstreams/%s", dev->bitfile_name);
+
+	if(dev->pd->LoadFPGA(filename) < 0) {
+		return -1;
 	}
 	if(create_and_flush(dev) < 0) {
-		fprintf(stderr, "error: CreateStream failed\n");
-		free(dev);
-		return 0;
+		return -1;
 	}
 	if(start_read_thread(dev)) {
-		fprintf(stderr, "error: cannot start read thread\n");
 		pd->CloseStream(dev->streamd);
-		free(dev);
-		return 0;
+		return -1;
 	}
 
 	// give thread a chance to start
-	usleep(100);
+	nmsleep(10);
 
-	return dev;
+	return 0;
 }
 
 

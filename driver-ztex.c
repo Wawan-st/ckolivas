@@ -90,7 +90,7 @@ static void ztex_detect(void)
 			ztex->threads = 1;
 			ztex_slave->fpgaNum = j;
 			ztex_slave->root = ztex_devices[i]->dev;
-			ztex_slave->repr[strlen(ztex_slave->repr) - 1] = ('1' + j);
+			ztex_slave->repr[strlen(ztex_slave->repr) - 1] = ('0' + j);
 			add_cgpu(ztex);
 		}
 

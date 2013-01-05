@@ -58,7 +58,7 @@
 #if defined(USE_BITFORCE) || defined(USE_ICARUS) || defined(USE_MODMINER)
 #	define USE_FPGA
 #	define USE_FPGA_SERIAL
-#elif defined(USE_ZTEX)
+#elif defined(USE_ZTEX) || defined(USE_PICO)
 #	define USE_FPGA
 #endif
 
@@ -1289,6 +1289,9 @@ static char *opt_verusage_and_exit(const char *extra)
 #endif
 #ifdef USE_ZTEX
 		"ztex "
+#endif
+#ifdef USE_PICO
+		"pico "
 #endif
 #ifdef USE_SCRYPT
 		"scrypt "
@@ -6771,6 +6774,10 @@ extern struct device_api modminer_api;
 extern struct device_api ztex_api;
 #endif
 
+#ifdef USE_PICO
+extern struct device_api pico_api;
+#endif
+
 
 static int cgminer_id_count = 0;
 
@@ -7046,6 +7053,11 @@ int main(int argc, char *argv[])
 #ifdef USE_ZTEX
 	if (!opt_scrypt)
 		ztex_api.api_detect();
+#endif
+
+#ifdef USE_PICO
+	if(!opt_scrypt)
+		pico_api.api_detect();
 #endif
 
 #ifdef WANT_CPUMINE

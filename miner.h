@@ -380,6 +380,10 @@ struct cgpu_info {
 #ifdef USE_MODMINER
 		struct cg_usb_device *usbdev;
 #endif
+#ifdef USE_PICO
+		void *device_pico;
+#endif
+
 		int device_fd;
 	};
 #ifdef USE_MODMINER

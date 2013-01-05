@@ -22,21 +22,20 @@ typedef struct data_list_s {
 
 typedef struct picominer_device_s {
 	char			device_name[32];
+	char			bitfile_name[64];
 	unsigned int		device_model;
 	bool			is_work_running;	// if the fpga is working
 	struct work		work;			// the current submitted work
 	struct work		last_work;		// the last work we were given
 	unsigned char		next_work[44];		// buffer containing the representation of the work given to the fpga
-	struct timeval		tv_workstart;		// when we started the current work
-	uint32_t		hashes;
-	int			bad_share_counter;
-	int			good_share_counter;
-
-	struct dclk_data	dclk;
 
 	void *			pd;
 	int			streamd;		// pico stream descriptor
 	void *			read_threadid;
+
+	unsigned int		devfreq;		// in MH/s (hashes)
+
+	struct timeval		work_start;
 
 	data_list_t *		nonce_list;
 	pthread_mutex_t		nonce_lock;
