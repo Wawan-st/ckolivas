@@ -8,6 +8,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+#include <pthread.h>
 struct picominer_device_s;
 
 #include "miner.h"
@@ -20,21 +21,24 @@ typedef struct data_list_s {
 
 
 typedef struct picominer_device_s {
-	int			is_ready;
-	char			device_name[32];
-	char			bitfile_name[64];
-	unsigned int		device_model;
 	struct work		work;			// the current submitted work
 	struct work		last_work;		// the last work we were given
 	unsigned char		next_work[44];		// buffer containing the representation of the work given to the fpga
 
+	pthread_mutex_t		device_lock;		// XXX
 	void *			pd;
 	int			streamd;		// pico stream descriptor
 	void *			read_threadid;
 
-	unsigned int		devfreq;		// in MH/s (hashes)
+	unsigned int		clock_freq;		// in MH/s (hashes)
 
 	struct timeval		work_start;
+
+	int			bitstream_loaded;
+
+	char			device_name[32];
+	unsigned int		device_model;
+	char			bitfile_name[32];
 
 	data_list_t *		nonce_list;
 	pthread_mutex_t		nonce_lock;

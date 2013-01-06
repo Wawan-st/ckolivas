@@ -159,7 +159,7 @@ static int64_t pico_process_results(struct thr_info *thr) {
 		// estimate the number of hashes performed on this work item
 		gettimeofday(&tv_now, 0);
 		lasthashes = hashes;
-		hashes = calc_hashes(&device->work_start, device->devfreq, &tv_now);
+		hashes = calc_hashes(&device->work_start, device->clock_freq, &tv_now);
 
 		// check for overflow: if we're closer to the end then we are to the last count, we're going to overflow
 		if(((0xffffffff - hashes) < (hashes - lasthashes))) {
@@ -168,12 +168,14 @@ static int64_t pico_process_results(struct thr_info *thr) {
 		}
 
 		if(!overflow)
-			nmsleep(10);
+			nmsleep(200);
 	}
 
 	// estimate the number of hashes performed on this work item
 	gettimeofday(&tv_workend, NULL);
-	hashes = calc_hashes(&device->work_start, device->devfreq, &tv_workend);
+	hashes = calc_hashes(&device->work_start, device->clock_freq, &tv_workend);
+
+	applog(LOG_WARNING, "%s-%d: returning hashes = %x", cgpu->api->name, cgpu->device_id, hashes);
 
 	return hashes;
 }
@@ -246,14 +248,13 @@ static bool pico_init(struct thr_info *thr) {
 	struct cgpu_info *cgpu = thr->cgpu;
 	picominer_device *device = cgpu->device_pico;
 
-	applog(LOG_NOTICE, "%s-%d: loading bitstream: ``%s''", cgpu->api->name, cgpu->device_id, device->bitfile_name);
+	applog(LOG_NOTICE, "%s-%d: loading bitstream: %s", cgpu->api->name, cgpu->device_id, device->bitfile_name);
 	if(picominer_prepare_device(device))
 		return false;
 	applog(LOG_NOTICE, "%s-%d: bitstream loaded", cgpu->api->name, cgpu->device_id);
 
 	gettimeofday(&now, NULL);
 	get_datestamp(cgpu->init, &now);
-	device->is_ready = 1;
 
 	return true;
 }

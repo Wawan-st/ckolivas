@@ -152,6 +152,7 @@ void picominer_destroy_device(picominer_device *device) {
 
 	picominer_delete_lists(device);
 
+	pthread_mutex_lock(&device->device_lock);
 	pd = (PicoDrv *)device->pd;
 	if(device->streamd >= 0) {
 		pd->CloseStream(device->streamd);
@@ -159,6 +160,7 @@ void picominer_destroy_device(picominer_device *device) {
 	}
 	if(pd)
 		delete pd;
+	pthread_mutex_unlock(&device->device_lock);
 	free(device);
 }
 
@@ -197,17 +199,21 @@ static int device_read128(picominer_device *device, void *v) {
 
 	int r;
 	char errbuf[BUFSIZ];
-
-	PicoDrv *pd = (PicoDrv *)device->pd;
-
+	PicoDrv *pd;
+       
+	pthread_mutex_lock(&device->device_lock);
+	pd = (PicoDrv *)device->pd;
 	if((r = pd->ReadStream(device->streamd, v, 16)) < 0) {
+		pthread_mutex_unlock(&device->device_lock);
 		fprintf(stderr, "error: ReadStream: %s\n", PicoErrors_FullError(r, errbuf, sizeof(errbuf)));
 		return -1;
 	}
 	if(r != 16) {
+		pthread_mutex_unlock(&device->device_lock);
 		fprintf(stderr, "error: ReadStream: short read: %d\n", r);
 		return -2;
 	}
+	pthread_mutex_unlock(&device->device_lock);
 
 	return 0;
 }
@@ -217,17 +223,21 @@ static int device_write128(picominer_device *device, void *v) {
 
 	int r;
 	char errbuf[BUFSIZ];
-
-	PicoDrv *pd = (PicoDrv *)device->pd;
-
+	PicoDrv *pd;
+       
+	pthread_mutex_lock(&device->device_lock);
+	pd = (PicoDrv *)device->pd;
 	if((r = pd->WriteStream(device->streamd, v, 16)) < 0) {
+		pthread_mutex_unlock(&device->device_lock);
 		fprintf(stderr, "error: WriteStream: %s\n", PicoErrors_FullError(r, errbuf, sizeof(errbuf)));
 		return -1;
 	}
 	if(r != 16) {
+		pthread_mutex_unlock(&device->device_lock);
 		fprintf(stderr, "error: WriteStream: short write: %d\n", r);
 		return -2;
 	}
+	pthread_mutex_unlock(&device->device_lock);
 
 	return 0;
 }
@@ -288,29 +298,32 @@ void stop_read_thread(picominer_device *dev) {
 }
 
 
+/*
+ * create_and_flush:
+ * 	only called by prepare_device and we'll lock there
+ */
 static int create_and_flush(picominer_device *dev) {
 
 	int avail, r;
 	char errbuf[BUFSIZ];
 	unsigned char *buf;
-	PicoDrv *pd = (PicoDrv *)dev->pd;
+	PicoDrv *pd;
+       
+	pd = (PicoDrv *)dev->pd;
 
 	// create stream
-	// printf("debug: creating stream\n"); fflush(stdout);
 	if((dev->streamd = pd->CreateStream(1)) < 0) {
 		fprintf(stderr, "error: cannot create stream\n");
 		return -1;
 	}
-	// printf("debug: stream created\n"); fflush(stdout);
 
 	// flush stream
 flush:
 	if((avail = pd->GetBytesAvailable(1, true)) > 0) {
-		// printf("debug: flush stream: %d\n", avail);
 		avail = (avail + 15) & ~15;
 		if(!(buf = (unsigned char *)malloc(avail))) {
-			perror("malloc");
 			pd->CloseStream(dev->streamd);
+			perror("malloc");
 			return -1;
 		}
 		if((r = pd->ReadStream(dev->streamd, buf, avail)) < 0) {
@@ -340,6 +353,7 @@ static picominer_device *picominer_create_device(PicoDrv *pd, const char *bitstr
 	dev->pd = pd;
 	snprintf(dev->bitfile_name, sizeof(dev->bitfile_name), "%s", bitstream_filename);
 	dev->devfreq = 200;
+	pthread_mutex_init(&dev->device_lock, 0);
 
 	return dev;
 }
@@ -352,21 +366,23 @@ int picominer_prepare_device(picominer_device *dev) {
 
 	snprintf(filename, sizeof(filename), "/usr/local/bin/bitstreams/%s", dev->bitfile_name);
 
+	pthread_mutex_lock(&dev->device_lock);
 	pd = (PicoDrv *)dev->pd;
 	if(pd->LoadFPGA(filename) < 0) {
+		pthread_mutex_unlock(&dev->device_lock);
 		return -1;
 	}
 	if(create_and_flush(dev) < 0) {
+		pthread_mutex_unlock(&dev->device_lock);
 		return -1;
 	}
 	if(start_read_thread(dev)) {
 		pd->CloseStream(dev->streamd);
+		pthread_mutex_unlock(&dev->device_lock);
 		return -1;
 	}
-
-	// give thread a chance to start
-	usleep(1000);
-	dev->is_ready = 1;
+	dev->bitstream_loaded = 1;
+	pthread_mutex_unlock(&dev->device_lock);
 
 	return 0;
 }
@@ -438,18 +454,27 @@ int picominer_reset(picominer_device *) {
 
 int picominer_get_stats(picominer_device *dev, float *t, float *v, float *i) {
 
-	PicoDrv *pd = (PicoDrv *)dev->pd;
-
-	if(dev->is_ready) {
+	int r;
+	PicoDrv *pd;
+       
+	pthread_mutex_lock(&dev->device_lock);
+	pd = (PicoDrv *)dev->pd;
+	r = dev->is_ready;
+	if(r) {
 		if(pd->GetSysMon(t, v, i)) {
 			fprintf(stderr, "error: GetSysMon\n");
+			pthread_mutex_unlock(&dev->device_lock);
 			return -1;
 		}
 	} else {
-		*t = 0;
-		*v = 0;
-		*i = 0;
+		if(t)
+			*t = 0;
+		if(v)
+			*v = 0;
+		if(i)
+			*i = 0;
 	}
+	pthread_mutex_unlock(&dev->device_lock);
 
 	return 0;
 }
