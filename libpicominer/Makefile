@@ -28,12 +28,14 @@ install:
 	cp ${SHARED_LIBRARY} ${INSTALL_PREFIX}/lib && \
 	rm -f ${INSTALL_PREFIX}/lib/lib${NAME}.so && \
 	ln -s ${INSTALL_PREFIX}/lib/${SHARED_LIBRARY} \
-	   ${INSTALL_PREFIX}/lib/lib${NAME}.so
+	   ${INSTALL_PREFIX}/lib/lib${NAME}.so && \
+	ldconfig
 
 uninstall:
 	rm -f ${INSTALL_PREFIX}/lib/${SHARED_LIBRARY} \
 	   ${INSTALL_PREFIX}/lib/lib${NAME}.so \
-	   ${INSTALL_PREFIX}/lib/${LIBRARY}
+	   ${INSTALL_PREFIX}/lib/${LIBRARY} && \
+	ldconfig
 
 clean:
 	rm -f ${OFILES} ${LIBRARY} ${SHARED_LIBRARY} lib${NAME}.so.1 lib${NAME}.so

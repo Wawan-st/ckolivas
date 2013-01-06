@@ -248,7 +248,8 @@ fi
 AM_CONDITIONAL([HAS_ZTEX], [test x$ztex = xyes])
 
 
-AC_CHECK_LIB(picominer, picominer_loads, [libpicominer=yes], [libpicominer=no])
+# AC_CHECK_LIB(picominer, picominer_loads, [libpicominer=yes], [libpicominer=no])
+libpicominer="yes"
 AC_ARG_ENABLE([pico],
 	[AC_HELP_STRING([--enable-pico],[Compile support for Pico (default disabled)])],
 	[pico=$enableval],
@@ -474,14 +475,14 @@ if test "x$opencl" != xno; then
 	else
 		echo "  OpenCL...............: NOT FOUND. GPU mining support DISABLED"
 		if test "x$cpumining$bitforce$icarus$ztex$modminer$pico" = xnononononono; then
-			AC_MSG_ERROR([No mining configured in])
+			AC_MSG_ERROR([No mining configured])
 		fi
 		echo "  scrypt...............: Disabled (needs OpenCL)"
 	fi
 else
 	echo "  OpenCL...............: Detection overrided. GPU mining support DISABLED"
-	if test "x$cpumining$bitforce$icarus$ztex$modminer" = xnonononono; then
-		AC_MSG_ERROR([No mining configured in])
+	if test "x$cpumining$bitforce$icarus$ztex$modminer$pico" = xnononononono; then
+		AC_MSG_ERROR([No mining configured])
 	fi
 	echo "  scrypt...............: Disabled (needs OpenCL)"
 fi

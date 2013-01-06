@@ -34,11 +34,9 @@ typedef struct picominer_device_s {
 
 	struct timeval		work_start;
 
-	int			bitstream_loaded;
-
 	char			device_name[32];
 	unsigned int		device_model;
-	char			bitfile_name[32];
+	char			bitstream_filename[32];
 
 	data_list_t *		nonce_list;
 	pthread_mutex_t		nonce_lock;

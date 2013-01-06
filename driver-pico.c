@@ -49,7 +49,6 @@ static void pico_detect() {
 
 	int i, fpgacount;
 	picominer_dev_list *devices, *p;
-	picominer_device *device;
 	cgpu_info_t *cgpu_info;
 
 	fpgacount = picominer_get_all_available(&devices);
@@ -97,7 +96,6 @@ static bool test_nonce(struct work *work, uint32_t nonce) {
 	uint32_t *swap32 = (uint32_t *)swap;
 	uint32_t *hash32 = (uint32_t *)hash;
 	uint32_t *work_nonce = (uint32_t *)(data + 64 + 12);
-	bool ret = false;
 
 	memcpy(data, work->data, sizeof(work->data));
 	*work_nonce = nonce;
@@ -117,10 +115,10 @@ static int64_t pico_process_results(struct thr_info *thr) {
 	struct cgpu_info *cgpu = thr->cgpu;
 	picominer_device *device = thr->cgpu->device_pico;
 	int r;
-	uint32_t nonce, v;
+	uint32_t nonce;
 	int64_t hashes = 0, lasthashes;
 	bool overflow = false;
-	struct timeval tv_now, tv_workend, elapsed;
+	struct timeval tv_now, tv_workend;
 
 	while(!(overflow || thr->work_restart)) {
 		if((r = picominer_has_nonce(device)) < 0) {
@@ -211,7 +209,6 @@ static int64_t pico_scan_hash(struct thr_info *thr, struct work *work, int64_t _
 	struct cgpu_info *cgpu = thr->cgpu;
 	picominer_device *device = cgpu->device_pico;
 	uint64_t hashes = 0;
-	bool startwork;
 
 	pico_prepare_next_work(device, work);
 	if(!pico_start_work(thr)) {
@@ -248,7 +245,7 @@ static bool pico_init(struct thr_info *thr) {
 	struct cgpu_info *cgpu = thr->cgpu;
 	picominer_device *device = cgpu->device_pico;
 
-	applog(LOG_NOTICE, "%s-%d: loading bitstream: %s", cgpu->api->name, cgpu->device_id, device->bitfile_name);
+	applog(LOG_NOTICE, "%s-%d: loading bitstream: %s", cgpu->api->name, cgpu->device_id, device->bitstream_filename);
 	if(picominer_prepare_device(device))
 		return false;
 	applog(LOG_NOTICE, "%s-%d: bitstream loaded", cgpu->api->name, cgpu->device_id);
@@ -274,9 +271,11 @@ static void pico_shutdown(struct thr_info *thr) {
 }
 
 
+/*
 static void pico_disable(struct thr_info *thr) {
 
 	applog(LOG_ERR, "%s: Disabling!", thr->cgpu->name);
 	devices[thr->cgpu->device_id]->deven = DEV_DISABLED;
 	pico_shutdown(thr);
 }
+ */

@@ -15,7 +15,7 @@ static const char *		bitfile_x501_virtex6_240t	= "hackjealousy-v0.5.3.bit";
 static const unsigned int	model_m501			= 0x501;
 
 typedef struct {
-	const char *		bitfile_name;
+	const char *		bitstream_filename;
 	const unsigned int	model;
 } supported_device_t;
 
@@ -23,6 +23,10 @@ static const supported_device_t s_supported_devices[] = {
 	{ bitfile_x501_virtex6_240t, model_m501 },
 	{ 0, 0 }
 };
+
+
+static pthread_mutex_t		s_bitstream_lock		= PTHREAD_MUTEX_INITIALIZER;
+static int			s_bitstream_count		= 0;					// if we start to read and write while we are loading any fpga, we crash
 
 
 static int picominer_init_lists(picominer_device *d) {
@@ -199,7 +203,18 @@ static int device_read128(picominer_device *device, void *v) {
 
 	int r;
 	char errbuf[BUFSIZ];
+	uint32_t *u = (uint32_t *)v;
 	PicoDrv *pd;
+
+	pthread_mutex_lock(&s_bitstream_lock);
+	r = s_bitstream_count;
+	pthread_mutex_unlock(&s_bitstream_lock);
+
+	if(r > 0) {
+		memset(u, 0, 16);
+		u[1] = 0xffffffff;
+		return 0;
+	}
        
 	pthread_mutex_lock(&device->device_lock);
 	pd = (PicoDrv *)device->pd;
@@ -225,6 +240,12 @@ static int device_write128(picominer_device *device, void *v) {
 	char errbuf[BUFSIZ];
 	PicoDrv *pd;
        
+	pthread_mutex_lock(&s_bitstream_lock);
+	r = s_bitstream_count;
+	pthread_mutex_unlock(&s_bitstream_lock);
+	if(r > 0)
+		return 0;
+
 	pthread_mutex_lock(&device->device_lock);
 	pd = (PicoDrv *)device->pd;
 	if((r = pd->WriteStream(device->streamd, v, 16)) < 0) {
@@ -248,7 +269,6 @@ static void *picominer_read_thread(void *vdev) {
 	uint32_t r[4];
 	picominer_device *d = (picominer_device *)vdev;
 
-	// printf("debug: picominer_read_thread: starting\n"); fflush(stdout);
 	while(1) {
 		if(!d->nonce_list) {
 			fprintf(stderr, "error: list missing\n");
@@ -259,10 +279,11 @@ static void *picominer_read_thread(void *vdev) {
 			fprintf(stderr, "error: picominer_read_thread: device_read128 failed\n");
 			continue;
 		}
-		if(picominer_put_nonce(d, r[0])) {
-			fprintf(stderr, "notice: nonce list deleted, exiting\n");
-			return 0;
-		}
+		if(r[1] != 0xffffffff)
+			if(picominer_put_nonce(d, r[0])) {
+				fprintf(stderr, "notice: nonce list deleted, exiting\n");
+				return 0;
+			}
 	}
 }
 
@@ -342,29 +363,13 @@ flush:
 }
 
 
-static picominer_device *picominer_create_device(PicoDrv *pd, const char *bitstream_filename) {
-
-	picominer_device *dev;
-
-	// get memory for device structure
-	if(!(dev = (picominer_device *)malloc(sizeof(*dev))))
-		return 0;
-	memset(dev, 0, sizeof(*dev));
-	dev->pd = pd;
-	snprintf(dev->bitfile_name, sizeof(dev->bitfile_name), "%s", bitstream_filename);
-	dev->devfreq = 200;
-	pthread_mutex_init(&dev->device_lock, 0);
-
-	return dev;
-}
-
-
 int picominer_prepare_device(picominer_device *dev) {
 
 	char filename[PATH_MAX];
 	PicoDrv *pd;
 
-	snprintf(filename, sizeof(filename), "/usr/local/bin/bitstreams/%s", dev->bitfile_name);
+	snprintf(filename, sizeof(filename), "/usr/local/bin/bitstreams/%s", dev->bitstream_filename);
+	printf("bitstream_filename: %s\n", filename);
 
 	pthread_mutex_lock(&dev->device_lock);
 	pd = (PicoDrv *)dev->pd;
@@ -381,10 +386,31 @@ int picominer_prepare_device(picominer_device *dev) {
 		pthread_mutex_unlock(&dev->device_lock);
 		return -1;
 	}
-	dev->bitstream_loaded = 1;
 	pthread_mutex_unlock(&dev->device_lock);
 
+	pthread_mutex_lock(&s_bitstream_lock);
+	s_bitstream_count -= 1;
+	pthread_mutex_unlock(&s_bitstream_lock);
+
 	return 0;
+}
+
+
+static picominer_device *picominer_create_device(PicoDrv *pd, const char *bitstream_filename) {
+
+	picominer_device *dev;
+
+	// get memory for device structure
+	if(!(dev = (picominer_device *)malloc(sizeof(*dev))))
+		return 0;
+	memset(dev, 0, sizeof(*dev));
+	dev->pd = pd;
+	snprintf(dev->bitstream_filename, sizeof(dev->bitstream_filename), "%s", bitstream_filename);
+	printf("placing bitstream_filename in device structure: %s\n", dev->bitstream_filename);
+	dev->clock_freq = 200;
+	pthread_mutex_init(&dev->device_lock, 0);
+
+	return dev;
 }
 
 
@@ -413,7 +439,7 @@ int picominer_get_all_available(picominer_dev_list **dev_list) {
 				}
 				cur = cur->next;
 			}
-			if(!(cur->dev = picominer_create_device(pd, sd->bitfile_name))) {
+			if(!(cur->dev = picominer_create_device(pd, sd->bitstream_filename))) {
 				continue;
 			}
 			cur->dev->device_model = sd->model;
@@ -422,6 +448,10 @@ int picominer_get_all_available(picominer_dev_list **dev_list) {
 		}
 	}
 	*dev_list = l;
+
+	pthread_mutex_lock(&s_bitstream_lock);
+	s_bitstream_count = num;
+	pthread_mutex_unlock(&s_bitstream_lock);
 
 	return num;
 }
@@ -456,16 +486,20 @@ int picominer_get_stats(picominer_device *dev, float *t, float *v, float *i) {
 
 	int r;
 	PicoDrv *pd;
+
+	pthread_mutex_lock(&s_bitstream_lock);
+	r = s_bitstream_count;
+	pthread_mutex_unlock(&s_bitstream_lock);
        
-	pthread_mutex_lock(&dev->device_lock);
-	pd = (PicoDrv *)dev->pd;
-	r = dev->is_ready;
-	if(r) {
+	if(r <= 0) {
+		pthread_mutex_lock(&dev->device_lock);
+		pd = (PicoDrv *)dev->pd;
 		if(pd->GetSysMon(t, v, i)) {
 			fprintf(stderr, "error: GetSysMon\n");
 			pthread_mutex_unlock(&dev->device_lock);
 			return -1;
 		}
+		pthread_mutex_unlock(&dev->device_lock);
 	} else {
 		if(t)
 			*t = 0;
@@ -474,7 +508,6 @@ int picominer_get_stats(picominer_device *dev, float *t, float *v, float *i) {
 		if(i)
 			*i = 0;
 	}
-	pthread_mutex_unlock(&dev->device_lock);
 
 	return 0;
 }
