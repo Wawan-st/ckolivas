@@ -106,6 +106,5 @@ if HAS_PICO
 cgminer_SOURCES += driver-pico.c
 bitstreamsdir = $(bindir)/bitstreams
 dist_bitstreams_DATA = bitstreams/*
-cgminer_LDFLAGS += -L/usr/local/lib
-cgminer_LDADD += -lpicominer -lpico
+cgminer_LDADD += -L./libpicominer -lpicominer -L/usr/local/lib -lpico
 endif

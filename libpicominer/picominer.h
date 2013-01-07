@@ -9,10 +9,6 @@
 extern "C" {
 #endif
 #include <pthread.h>
-struct picominer_device_s;
-
-#include "miner.h"
-
 
 typedef struct data_list_s {
 	uint32_t		data;
@@ -21,11 +17,10 @@ typedef struct data_list_s {
 
 
 typedef struct picominer_device_s {
-	struct work		work;			// the current submitted work
-	struct work		last_work;		// the last work we were given
+	void *			work;			// the current submitted work
+	void *			last_work;		// the last work we were given
 	unsigned char		next_work[44];		// buffer containing the representation of the work given to the fpga
 
-	pthread_mutex_t		device_lock;		// XXX
 	void *			pd;
 	int			streamd;		// pico stream descriptor
 	void *			read_threadid;
@@ -36,7 +31,9 @@ typedef struct picominer_device_s {
 
 	char			device_name[32];
 	unsigned int		device_model;
-	char			bitstream_filename[32];
+	char			bitstream_filename[1024];
+	int			device_ready;
+	pthread_mutex_t		ready_lock;
 
 	data_list_t *		nonce_list;
 	pthread_mutex_t		nonce_lock;
@@ -59,7 +56,8 @@ void picominer_destroy_device(picominer_device *);
 void picominer_destroy_device_list(picominer_dev_list *);
 void picominer_destroy_list(picominer_dev_list *);
 int picominer_get_stats(picominer_device *, float *, float *, float *);
-int picominer_prepare_device(picominer_device *dev);
+int picominer_prepare_device(picominer_device *);
+void picominer_build_time(char *, unsigned int);
 #ifdef __cplusplus
 }
 #endif

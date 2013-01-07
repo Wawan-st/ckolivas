@@ -1,14 +1,14 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <stdint.h>
+
+#include "picominer.h"
 
 #define LINUX 1
 #define POSIX 1
-
 #include <picodrv.h>
 #include <pico_errors.h>
-
-#include "picominer.h"
 
 
 static const char *		bitfile_x501_virtex6_240t	= "hackjealousy-v0.5.3.bit";
@@ -23,10 +23,6 @@ static const supported_device_t s_supported_devices[] = {
 	{ bitfile_x501_virtex6_240t, model_m501 },
 	{ 0, 0 }
 };
-
-
-static pthread_mutex_t		s_bitstream_lock		= PTHREAD_MUTEX_INITIALIZER;
-static int			s_bitstream_count		= 0;					// if we start to read and write while we are loading any fpga, we crash
 
 
 static int picominer_init_lists(picominer_device *d) {
@@ -156,7 +152,6 @@ void picominer_destroy_device(picominer_device *device) {
 
 	picominer_delete_lists(device);
 
-	pthread_mutex_lock(&device->device_lock);
 	pd = (PicoDrv *)device->pd;
 	if(device->streamd >= 0) {
 		pd->CloseStream(device->streamd);
@@ -164,7 +159,6 @@ void picominer_destroy_device(picominer_device *device) {
 	}
 	if(pd)
 		delete pd;
-	pthread_mutex_unlock(&device->device_lock);
 	free(device);
 }
 
@@ -203,32 +197,17 @@ static int device_read128(picominer_device *device, void *v) {
 
 	int r;
 	char errbuf[BUFSIZ];
-	uint32_t *u = (uint32_t *)v;
 	PicoDrv *pd;
 
-	pthread_mutex_lock(&s_bitstream_lock);
-	r = s_bitstream_count;
-	pthread_mutex_unlock(&s_bitstream_lock);
-
-	if(r > 0) {
-		memset(u, 0, 16);
-		u[1] = 0xffffffff;
-		return 0;
-	}
-       
-	pthread_mutex_lock(&device->device_lock);
 	pd = (PicoDrv *)device->pd;
 	if((r = pd->ReadStream(device->streamd, v, 16)) < 0) {
-		pthread_mutex_unlock(&device->device_lock);
 		fprintf(stderr, "error: ReadStream: %s\n", PicoErrors_FullError(r, errbuf, sizeof(errbuf)));
 		return -1;
 	}
 	if(r != 16) {
-		pthread_mutex_unlock(&device->device_lock);
 		fprintf(stderr, "error: ReadStream: short read: %d\n", r);
 		return -2;
 	}
-	pthread_mutex_unlock(&device->device_lock);
 
 	return 0;
 }
@@ -239,26 +218,16 @@ static int device_write128(picominer_device *device, void *v) {
 	int r;
 	char errbuf[BUFSIZ];
 	PicoDrv *pd;
-       
-	pthread_mutex_lock(&s_bitstream_lock);
-	r = s_bitstream_count;
-	pthread_mutex_unlock(&s_bitstream_lock);
-	if(r > 0)
-		return 0;
 
-	pthread_mutex_lock(&device->device_lock);
 	pd = (PicoDrv *)device->pd;
 	if((r = pd->WriteStream(device->streamd, v, 16)) < 0) {
-		pthread_mutex_unlock(&device->device_lock);
 		fprintf(stderr, "error: WriteStream: %s\n", PicoErrors_FullError(r, errbuf, sizeof(errbuf)));
 		return -1;
 	}
 	if(r != 16) {
-		pthread_mutex_unlock(&device->device_lock);
 		fprintf(stderr, "error: WriteStream: short write: %d\n", r);
 		return -2;
 	}
-	pthread_mutex_unlock(&device->device_lock);
 
 	return 0;
 }
@@ -279,11 +248,10 @@ static void *picominer_read_thread(void *vdev) {
 			fprintf(stderr, "error: picominer_read_thread: device_read128 failed\n");
 			continue;
 		}
-		if(r[1] != 0xffffffff)
-			if(picominer_put_nonce(d, r[0])) {
-				fprintf(stderr, "notice: nonce list deleted, exiting\n");
-				return 0;
-			}
+		if(picominer_put_nonce(d, r[0])) {
+			fprintf(stderr, "notice: nonce list deleted, exiting\n");
+			return 0;
+		}
 	}
 }
 
@@ -321,7 +289,6 @@ void stop_read_thread(picominer_device *dev) {
 
 /*
  * create_and_flush:
- * 	only called by prepare_device and we'll lock there
  */
 static int create_and_flush(picominer_device *dev) {
 
@@ -329,7 +296,7 @@ static int create_and_flush(picominer_device *dev) {
 	char errbuf[BUFSIZ];
 	unsigned char *buf;
 	PicoDrv *pd;
-       
+
 	pd = (PicoDrv *)dev->pd;
 
 	// create stream
@@ -365,32 +332,22 @@ flush:
 
 int picominer_prepare_device(picominer_device *dev) {
 
-	char filename[PATH_MAX];
 	PicoDrv *pd;
 
-	snprintf(filename, sizeof(filename), "/usr/local/bin/bitstreams/%s", dev->bitstream_filename);
-	printf("bitstream_filename: %s\n", filename);
-
-	pthread_mutex_lock(&dev->device_lock);
 	pd = (PicoDrv *)dev->pd;
-	if(pd->LoadFPGA(filename) < 0) {
-		pthread_mutex_unlock(&dev->device_lock);
+	if(pd->LoadFPGA(dev->bitstream_filename) < 0) {
 		return -1;
 	}
 	if(create_and_flush(dev) < 0) {
-		pthread_mutex_unlock(&dev->device_lock);
 		return -1;
 	}
 	if(start_read_thread(dev)) {
 		pd->CloseStream(dev->streamd);
-		pthread_mutex_unlock(&dev->device_lock);
 		return -1;
 	}
-	pthread_mutex_unlock(&dev->device_lock);
-
-	pthread_mutex_lock(&s_bitstream_lock);
-	s_bitstream_count -= 1;
-	pthread_mutex_unlock(&s_bitstream_lock);
+	pthread_mutex_lock(&dev->ready_lock);
+	dev->device_ready = 1;
+	pthread_mutex_unlock(&dev->ready_lock);
 
 	return 0;
 }
@@ -405,10 +362,9 @@ static picominer_device *picominer_create_device(PicoDrv *pd, const char *bitstr
 		return 0;
 	memset(dev, 0, sizeof(*dev));
 	dev->pd = pd;
-	snprintf(dev->bitstream_filename, sizeof(dev->bitstream_filename), "%s", bitstream_filename);
-	printf("placing bitstream_filename in device structure: %s\n", dev->bitstream_filename);
+	snprintf(dev->bitstream_filename, sizeof(dev->bitstream_filename), "/usr/local/bin/bitstreams/%s", bitstream_filename);
 	dev->clock_freq = 200;
-	pthread_mutex_init(&dev->device_lock, 0);
+	pthread_mutex_init(&dev->ready_lock, 0);
 
 	return dev;
 }
@@ -449,10 +405,6 @@ int picominer_get_all_available(picominer_dev_list **dev_list) {
 	}
 	*dev_list = l;
 
-	pthread_mutex_lock(&s_bitstream_lock);
-	s_bitstream_count = num;
-	pthread_mutex_unlock(&s_bitstream_lock);
-
 	return num;
 }
 
@@ -484,22 +436,15 @@ int picominer_reset(picominer_device *) {
 
 int picominer_get_stats(picominer_device *dev, float *t, float *v, float *i) {
 
-	int r;
 	PicoDrv *pd;
 
-	pthread_mutex_lock(&s_bitstream_lock);
-	r = s_bitstream_count;
-	pthread_mutex_unlock(&s_bitstream_lock);
-       
-	if(r <= 0) {
-		pthread_mutex_lock(&dev->device_lock);
-		pd = (PicoDrv *)dev->pd;
-		if(pd->GetSysMon(t, v, i)) {
-			fprintf(stderr, "error: GetSysMon\n");
-			pthread_mutex_unlock(&dev->device_lock);
-			return -1;
-		}
-		pthread_mutex_unlock(&dev->device_lock);
+	if(!dev)
+		return -1;
+
+	pd = (PicoDrv *)dev->pd;
+	if(pd->GetSysMon(t, v, i)) {
+		fprintf(stderr, "error: GetSysMon\n");
+		return -1;
 	} else {
 		if(t)
 			*t = 0;
@@ -511,3 +456,10 @@ int picominer_get_stats(picominer_device *dev, float *t, float *v, float *i) {
 
 	return 0;
 }
+
+
+void picominer_build_time(char *buf, unsigned int buf_len) {
+
+	snprintf(buf, buf_len, "%s %s", __DATE__, __TIME__);
+}
+

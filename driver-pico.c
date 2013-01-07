@@ -49,8 +49,12 @@ static void pico_detect() {
 
 	int i, fpgacount;
 	picominer_dev_list *devices, *p;
+	picominer_device *dev;
 	cgpu_info_t *cgpu_info;
+	char build_time[128];
 
+	picominer_build_time(build_time, sizeof(build_time));
+	applog(LOG_NOTICE, "pico_detect: %s", build_time);
 	fpgacount = picominer_get_all_available(&devices);
 	if(fpgacount > 0)
 		applog(LOG_NOTICE, "Found %d Pico M-50x board%s", fpgacount, (fpgacount > 1)? "s" : "");
@@ -67,7 +71,7 @@ static void pico_detect() {
 		cgpu_info->api = &pico_api;
 		cgpu_info->device_pico = p->dev;
 		cgpu_info->threads = 1;
-		snprintf(p->dev->device_name, sizeof(p->dev->device_name), "p%x", p->dev->device_model);
+		snprintf(p->dev->device_name, sizeof(p->dev->device_name), "p-%x", p->dev->device_model & 0xf);
 		cgpu_info->name = strdup(p->dev->device_name);
 		add_cgpu(cgpu_info);
 		applog(LOG_NOTICE, "%s-%d: Found Pico (Pico %s)", cgpu_info->api->name, cgpu_info->device_id, cgpu_info->name);
@@ -120,6 +124,9 @@ static int64_t pico_process_results(struct thr_info *thr) {
 	bool overflow = false;
 	struct timeval tv_now, tv_workend;
 
+	if(!device)
+		return 0;
+
 	while(!(overflow || thr->work_restart)) {
 		if((r = picominer_has_nonce(device)) < 0) {
 			applog(LOG_ERR, "%s-%d: error: picominer_has_nonce failed\n", cgpu->api->name, cgpu->device_id);
@@ -134,15 +141,15 @@ static int64_t pico_process_results(struct thr_info *thr) {
 			nonce = le32toh(nonce);
 
 			// test the nonce against the current work
-			if(test_nonce(&device->work, nonce)) {
+			if(test_nonce(device->work, nonce)) {
 				applog(LOG_DEBUG, "%s-%d: Nonce for current work: 0x%8.8x", cgpu->api->name, cgpu->device_id, nonce);
-				submit_nonce(thr, &device->work, nonce);
+				submit_nonce(thr, device->work, nonce);
 			}
 
 			// it may be for the last work
-			else if(test_nonce(&device->last_work, nonce)) {
+			else if(test_nonce(device->last_work, nonce)) {
 				applog(LOG_DEBUG, "%s-%d: Nonce for previous work: 0x%8.8x", cgpu->api->name, cgpu->device_id, nonce);
-				submit_nonce(thr, &device->last_work, nonce);
+				submit_nonce(thr, device->last_work, nonce);
 			}
 
 			else {
@@ -179,44 +186,43 @@ static int64_t pico_process_results(struct thr_info *thr) {
 }
 
 
-static bool pico_prepare_next_work(picominer_device *device, struct work *work) {
+static int64_t pico_scan_hash(struct thr_info *thr, struct work *work, int64_t __maybe_unused max_nonce) {
+
+	int r;
+	struct cgpu_info *cgpu = thr->cgpu;
+	picominer_device *device = cgpu->device_pico;
+	uint64_t hashes = 0;
+
+	pthread_mutex_lock(&device->ready_lock);
+	r = device->device_ready;
+	pthread_mutex_unlock(&device->ready_lock);
+	if(!r) {
+		return 0;
+	}
 
 	// copy midstate and taildata from work item (data in low bits; midstate in high)
 	memcpy(device->next_work, work->data + 64, 12);
 	memcpy(device->next_work + 12, work->midstate, 32);
 
-	return true;
-}
-
-
-static bool pico_start_work(struct thr_info *thr) {
-
-	picominer_device *device = thr->cgpu->device_pico;
-
+	// send data
 	if(picominer_send_hash_data(device, device->next_work)) {
-		fprintf(stderr, "error: picominer_send_hash_data failed\n"); fflush(stderr);
-		return false;
-	}
-
-	gettimeofday(&device->work_start, NULL);
-
-	return true;
-}
-
-
-static int64_t pico_scan_hash(struct thr_info *thr, struct work *work, int64_t __maybe_unused max_nonce) {
-
-	struct cgpu_info *cgpu = thr->cgpu;
-	picominer_device *device = cgpu->device_pico;
-	uint64_t hashes = 0;
-
-	pico_prepare_next_work(device, work);
-	if(!pico_start_work(thr)) {
 		applog(LOG_ERR, "%s-%d: error: pico_start_work failed", cgpu->api->name, cgpu->device_id);
 		return 0;
 	}
-	memcpy(&device->last_work, &device->work, sizeof(device->last_work));
-	memcpy(&device->work, work, sizeof(device->work));
+
+	// mark when fpga received data
+	gettimeofday(&device->work_start, NULL);
+
+	// save work
+	if(device->last_work)
+		free(device->last_work);
+	device->last_work = device->work;
+	if(!(device->work = malloc(sizeof(struct work)))) {
+		applog(LOG_ERR, "error: memory");
+		return 0;
+	}
+	memcpy(device->work, work, sizeof(struct work));
+
 	hashes = pico_process_results(thr);
 	work->blk.nonce = 0xffffffff;
 
@@ -230,8 +236,13 @@ static void pico_statline_before(char *buf, struct cgpu_info *cgpu) {
 	char information_string[16];
 	picominer_device *dev = cgpu->device_pico;
 	float t, v, i;
+	int r;
 
-	if(!picominer_get_stats(dev, &t, &v, &i)) {
+	pthread_mutex_lock(&dev->ready_lock);
+	r = dev->device_ready;
+	pthread_mutex_unlock(&dev->ready_lock);
+
+	if((r) && (!picominer_get_stats(dev, &t, &v, &i))) {
 		snprintf(information_string, sizeof(information_string), "%2.1fC %s%2.1fW", t, (v * i < 10.0)? " " : "", v * i);
 		memcpy(before, information_string, strlen(information_string));
 	}
@@ -245,10 +256,14 @@ static bool pico_init(struct thr_info *thr) {
 	struct cgpu_info *cgpu = thr->cgpu;
 	picominer_device *device = cgpu->device_pico;
 
-	applog(LOG_NOTICE, "%s-%d: loading bitstream: %s", cgpu->api->name, cgpu->device_id, device->bitstream_filename);
+	if(!device) {
+		applog(LOG_ERR, "error: pico_init: no device_pico");
+		return false;
+	}
+
+	applog(LOG_NOTICE, "%s-%d: loading bitstream: ``%s''", cgpu->api->name, cgpu->device_id, device->bitstream_filename);
 	if(picominer_prepare_device(device))
 		return false;
-	applog(LOG_NOTICE, "%s-%d: bitstream loaded", cgpu->api->name, cgpu->device_id);
 
 	gettimeofday(&now, NULL);
 	get_datestamp(cgpu->init, &now);
