@@ -1304,9 +1304,9 @@ static void get_opencl_statline_before(char *buf, struct cgpu_info *gpu)
 		if(ge != -1)
 			tailsprintf(buf, "%4dMHz | ", ge);
 		else
-			tailsprintf(buf, "       | ");
+			tailsprintf(buf, "        | ");
 	} else
-		tailsprintf(buf, "               |        | ");
+		tailsprintf(buf, "               |         | ");
 }
 #endif
 

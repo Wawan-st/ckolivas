@@ -737,7 +737,7 @@ static void get_modminer_statline_before(char *buf, struct cgpu_info *modminer)
 	for(i = strlen(info); i < 15; i++)
 		info[i] = ' ';
 	info[i] = 0;
-	snprintf(info + strlen(info), sizeof(info) - strlen(info), "| %3uMHz | ", (unsigned int)(modminer->clock));
+	snprintf(info + strlen(info), sizeof(info) - strlen(info), "| %4uMHz | ", (unsigned int)(modminer->clock));
 	strcat(buf, info);
 }
 

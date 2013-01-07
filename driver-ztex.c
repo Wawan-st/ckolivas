@@ -463,7 +463,7 @@ static void ztex_statline_before(char *buf, struct cgpu_info *cgpu)
 {
 	if (cgpu->deven == DEV_ENABLED) {
 		tailsprintf(buf, "%s-%d   | ", cgpu->device_ztex->snString, cgpu->device_ztex->fpgaNum);
-		tailsprintf(buf, "%3uMHz | ", (unsigned int)(cgpu->device_ztex->freqM1 * (cgpu->device_ztex->freqM + 1)));
+		tailsprintf(buf, "%4uMHz | ", (unsigned int)(cgpu->device_ztex->freqM1 * (cgpu->device_ztex->freqM + 1)));
 	}
 }
 

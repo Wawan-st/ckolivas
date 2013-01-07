@@ -438,9 +438,6 @@ int picominer_get_stats(picominer_device *dev, float *t, float *v, float *i) {
 
 	PicoDrv *pd;
 
-	if(!dev)
-		return -1;
-
 	pd = (PicoDrv *)dev->pd;
 	if(pd->GetSysMon(t, v, i)) {
 		fprintf(stderr, "error: GetSysMon\n");

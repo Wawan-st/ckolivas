@@ -33,7 +33,7 @@ static void pico_shutdown(struct thr_info *);
 
 struct device_api pico_api = {
 	.dname				= "pico",
-	.name				= "pico",
+	.name				= "PCO",
 	.api_detect			= pico_detect,
 	.get_statline_before		= pico_statline_before,
 	.thread_init			= pico_init,
@@ -180,8 +180,6 @@ static int64_t pico_process_results(struct thr_info *thr) {
 	gettimeofday(&tv_workend, NULL);
 	hashes = calc_hashes(&device->work_start, device->clock_freq, &tv_workend);
 
-	applog(LOG_WARNING, "%s-%d: returning hashes = %x", cgpu->api->name, cgpu->device_id, hashes);
-
 	return hashes;
 }
 
@@ -232,8 +230,8 @@ static int64_t pico_scan_hash(struct thr_info *thr, struct work *work, int64_t _
 
 static void pico_statline_before(char *buf, struct cgpu_info *cgpu) {
 
-	char before[] = "               ";
-	char information_string[16];
+	char before[] = "                         ";
+	char information_string[128];
 	picominer_device *dev = cgpu->device_pico;
 	float t, v, i;
 	int r;
@@ -242,8 +240,8 @@ static void pico_statline_before(char *buf, struct cgpu_info *cgpu) {
 	r = dev->device_ready;
 	pthread_mutex_unlock(&dev->ready_lock);
 
-	if((r) && (!picominer_get_stats(dev, &t, &v, &i))) {
-		snprintf(information_string, sizeof(information_string), "%2.1fC %s%2.1fW", t, (v * i < 10.0)? " " : "", v * i);
+	if((!picominer_get_stats(dev, &t, &v, &i))) {
+		snprintf(information_string, sizeof(information_string), "%2.1fC %s%2.1fW     | %4uMHz ", t, (v * i < 10.0)? " " : "", v * i, dev->clock_freq);
 		memcpy(before, information_string, strlen(information_string));
 	}
 	tailsprintf(buf, "%s| ", &before[0]);
