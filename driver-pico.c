@@ -239,6 +239,10 @@ static void pico_statline_before(char *buf, struct cgpu_info *cgpu) {
 	pthread_mutex_lock(&dev->ready_lock);
 	r = dev->device_ready;
 	pthread_mutex_unlock(&dev->ready_lock);
+	if(!r) {
+		tailsprintf(buf, "%s| ", &before[0]);
+		return;
+	}
 
 	if((!picominer_get_stats(dev, &t, &v, &i))) {
 		snprintf(information_string, sizeof(information_string), "%2.1fC %s%2.1fW     | %4uMHz ", t, (v * i < 10.0)? " " : "", v * i, dev->clock_freq);
