@@ -2302,31 +2302,32 @@ static void uncompress(uint32_t bits, uint32_t *target) {
 }
 
 
+static long double g_d1 = 0.0L;
+
 /*
  * network difficulty, work target difficulty, share difficulty
  */
-static long double diff1() {
+static void diff1_init() {
 
-	static long double d1 = 0.0L;
-	static int diff1_init = 0;
-	static unsigned char diff1_8[32] = {
+	static const unsigned char diff1_8[32] = {
 		0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00,
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 	};
 
-	if(!diff1_init) {
-		int i;
+	int i;
 
-		for(i = 0; i < 32; i++) {
-			d1 *= 256;
-			d1 += diff1_8[i];
-		}
-		diff1_init = 1;
+	for(i = 0; i < 32; i++) {
+		d1 *= 256;
+		d1 += diff1_8[i];
 	}
+}
 
-	return d1;
+
+static long double diff1() {
+
+	return g_d1;
 }
 
 
@@ -6833,6 +6834,8 @@ int main(int argc, char *argv[])
 	unsigned int k;
 	int i, j;
 	char *s;
+
+	diff1_init();
 
 	/* This dangerous functions tramples random dynamically allocated
 	 * variables so do it before anything at all */
