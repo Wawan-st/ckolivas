@@ -2533,7 +2533,8 @@ static share_stat_t *stats_addshare(long double sd, long double td, long double 
 	static uint32_t seq = 0;
 
 	time_t now;
-	long double m, pot_f;
+	uint64_t mi;
+	long double m, pot_f, mr;
 	share_stat_t *ss;
 
 	now = time(0);
@@ -2549,6 +2550,8 @@ static share_stat_t *stats_addshare(long double sd, long double td, long double 
 	ss->sd = sd;
 	ss->pps_value = 25.0L * td / nd;
 	m = (sd <= 5.0L * nd)? sd : 5.0L * nd;
+	mi = 10 * sd;
+	mr = (long double)mi / 10.0L;
 	pot_f = (1.0L / (5.0L - 4.0L * powl(0.2L * td / nd, 0.2L))) * powl(m / td, 0.8L);
 	ss->pot_value = ss->pps_value * pot_f;
 
