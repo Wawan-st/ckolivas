@@ -101,3 +101,10 @@ cgminer_SOURCES += driver-ztex.c libztex.c libztex.h
 bitstreamsdir = $(bindir)/bitstreams
 dist_bitstreams_DATA = bitstreams/*
 endif
+
+if HAS_PICO
+cgminer_SOURCES += driver-pico.c
+bitstreamsdir = $(bindir)/bitstreams
+dist_bitstreams_DATA = bitstreams/*
+cgminer_LDADD += -L./libpicominer -lpicominer -L/usr/local/lib -lpico
+endif

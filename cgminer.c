@@ -58,7 +58,7 @@
 #if defined(USE_BITFORCE) || defined(USE_ICARUS) || defined(USE_MODMINER)
 #	define USE_FPGA
 #	define USE_FPGA_SERIAL
-#elif defined(USE_ZTEX)
+#elif defined(USE_ZTEX) || defined(USE_PICO)
 #	define USE_FPGA
 #endif
 
@@ -185,6 +185,18 @@ static struct timeval total_tv_start, total_tv_end;
 
 pthread_mutex_t control_lock;
 pthread_mutex_t stats_lock;
+
+long double g_total_target_difficulty_accepted = 0;
+long double g_avg_target_difficulty = 0, g_avg_share_difficulty = 0, g_total_pps = 0, g_total_pot = 0, g_best_pot = 0, g_best_potf = 0, g_best_share = 0;
+long double g_s_last_min = 0, g_s_last_30mins = 0, g_s_last_hr = 0, g_s_last_24hrs = 0;
+long double g_avg_sps = 0, g_avg_sps_last_min = 0, g_avg_sps_last_30mins = 0, g_avg_sps_last_hr = 0, g_avg_sps_last_24hrs;
+long double g_pps_last_30mins, g_pps_last_hr = 0, g_pps_last_24hrs = 0;
+long double g_pot_last_30mins, g_pot_last_hr = 0, g_pot_last_24hrs = 0;
+
+long double g_avg_seconds_per_block = 0;
+unsigned long long g_cur_block_time = 0, g_blocks_total = 0, g_blocks_total_time = 0, g_blocks_last_hr = 0, g_blocks_time_last_hr = 0, g_blocks_last_24hrs = 0, g_blocks_time_last_24hrs = 0;
+static time_t g_first_block_started = 0, g_last_block_started = 0;
+static time_t g_first_stat = 0, g_last_stat = 0;
 
 int hw_errors;
 int total_accepted, total_rejected, total_diff1;
@@ -1282,6 +1294,9 @@ static char *opt_verusage_and_exit(const char *extra)
 #ifdef USE_ZTEX
 		"ztex "
 #endif
+#ifdef USE_PICO
+		"pico "
+#endif
 #ifdef USE_SCRYPT
 		"scrypt "
 #endif
@@ -1910,6 +1925,11 @@ static void curses_print_status(void)
 {
 	struct pool *pool = current_pool();
 
+	int i;
+	char pps_buf[256], pot_buf[256], block_buf[256], shares_buf[256];
+	time_t now = time(0);
+	long double hps = (powl(2.0L, 48.0L) / (powl(2.0L, 16.0L) - 1));
+
 	wattron(statuswin, A_BOLD);
 	mvwprintw(statuswin, 0, 0, " " PACKAGE " version " VERSION " - Started: %s", datestamp);
 #ifdef WANT_CPUMINE
@@ -1941,13 +1961,66 @@ static void curses_print_status(void)
 			pool->sockaddr_url, pool->diff, have_longpoll ? "": "out",
 			pool->has_gbt ? "GBT" : "LP", pool->rpc_user);
 	}
+
+	snprintf(block_buf, sizeof(block_buf), "Current block time: %llu secs  Total blocks: %llu (%.2Lf secs/block)", g_cur_block_time, g_blocks_total, g_avg_seconds_per_block);
+	if((g_first_block_started != 0) && (now - g_first_block_started >= 60 * 60))
+		snprintf(block_buf + strlen(block_buf), sizeof(block_buf) - strlen(block_buf),
+		   "  Last hr: %llu (%.2Lf secs/block)", g_blocks_last_hr, ((long double)g_blocks_time_last_hr) / ((long double)g_blocks_last_hr));
+	if((g_first_block_started != 0) && (now - g_first_block_started >= 24 * 60 * 60))
+		snprintf(block_buf + strlen(block_buf), sizeof(block_buf) - strlen(block_buf),
+		   "  Last 24hrs: %llu (%.2Lf secs/block)", g_blocks_last_24hrs, ((long double)g_blocks_time_last_24hrs) / ((long double)g_blocks_last_24hrs));
+	snprintf(block_buf + strlen(block_buf), sizeof(block_buf) - strlen(block_buf), "        ");
+
+	snprintf(shares_buf, sizeof(shares_buf), "Total shares: %.2Lf (%.3Lf Gh/s)", g_total_target_difficulty_accepted, hps * g_avg_sps / 1e9);
+	if((g_first_stat != 0) && (now - g_first_stat >= 60))
+		snprintf(shares_buf + strlen(shares_buf), sizeof(shares_buf) - strlen(shares_buf),
+		   "  Last min: %.2Lf (%.3Lf Gh/s)", g_s_last_min, hps * g_avg_sps_last_min / 1e9);
+	if((g_first_stat != 0) && (now - g_first_stat >= 30 * 60))
+		snprintf(shares_buf + strlen(shares_buf), sizeof(shares_buf) - strlen(shares_buf),
+		   "  Last 30mins: %.2Lf (%.3Lf Gh/s)", g_s_last_30mins, hps * g_avg_sps_last_30mins / 1e9);
+	if((g_first_stat != 0) && (now - g_first_stat >= 60 * 60))
+		snprintf(shares_buf + strlen(shares_buf), sizeof(shares_buf) - strlen(shares_buf),
+		   "  Last hr: %.2Lf (%.3Lf Gh/s)", g_s_last_hr, hps * g_avg_sps_last_hr / 1e9);
+	if((g_first_stat != 0) && (now - g_first_stat >= 24 * 60 * 60))
+		snprintf(shares_buf + strlen(shares_buf), sizeof(shares_buf) - strlen(shares_buf),
+		   "  Last 24hrs: %.2Lf (%.3Lf Gh/s)", g_s_last_24hrs, hps * g_avg_sps_last_24hrs / 1e9);
+	snprintf(shares_buf + strlen(shares_buf), sizeof(shares_buf) - strlen(shares_buf), "        ");
+
+	snprintf(pot_buf, sizeof(pot_buf), "   (%%%.0Lf)  ", 100.0L * g_total_pot / g_total_pps);
+	for(i = 0; i < (int)strlen(pot_buf); i++)
+		pps_buf[i] = ' ';
+	pps_buf[strlen(pot_buf)] = 0;
+
+	snprintf(pps_buf + strlen(pps_buf), sizeof(pps_buf) - strlen(pps_buf), "PPS: %3.8Lf BTC", g_total_pps);
+	if((g_first_stat != 0) && (now - g_first_stat >= 30 * 60))
+		snprintf(pps_buf + strlen(pps_buf), sizeof(pps_buf) - strlen(pps_buf), "  Last 30mins: %3.8Lf", g_pps_last_30mins);
+	if((g_first_stat != 0) && (now - g_first_stat >= 60 * 60))
+		snprintf(pps_buf + strlen(pps_buf), sizeof(pps_buf) - strlen(pps_buf), "  Last hr: %3.8Lf", g_pps_last_hr);
+	if((g_first_stat != 0) && (now - g_first_stat >= 24 * 60 * 60))
+		snprintf(pps_buf + strlen(pps_buf), sizeof(pps_buf) - strlen(pps_buf), "  Last 24hrs: %3.8Lf", g_pps_last_24hrs);
+	snprintf(pps_buf + strlen(pps_buf), sizeof(pps_buf) - strlen(pps_buf), "        ");
+
+	snprintf(pot_buf + strlen(pot_buf), sizeof(pot_buf) - strlen(pot_buf), "POT: %3.8Lf BTC", g_total_pot);
+	if((g_first_stat != 0) && (now - g_first_stat >= 30 * 60))
+		snprintf(pot_buf + strlen(pot_buf), sizeof(pot_buf) - strlen(pot_buf), "  Last 30mins: %3.8Lf", g_pot_last_30mins);
+	if((g_first_stat != 0) && (now - g_first_stat >= 60 * 60))
+		snprintf(pot_buf + strlen(pot_buf), sizeof(pot_buf) - strlen(pot_buf), "  Last hr: %3.8Lf", g_pot_last_hr);
+	if((g_first_stat != 0) && (now - g_first_stat >= 24 * 60 * 60))
+		snprintf(pot_buf + strlen(pot_buf), sizeof(pot_buf) - strlen(pot_buf), "  Last 24hrs: %3.8Lf", g_pot_last_24hrs);
+	snprintf(pot_buf + strlen(pot_buf), sizeof(pot_buf) - strlen(pot_buf), "  Best: %3.8Lf (%.2Lf X)     ", g_best_pot, g_best_potf);
+
 	wclrtoeol(statuswin);
-	mvwprintw(statuswin, 5, 0, " Block: %s...  Diff:%s  Started: %s  Best share: %s   ",
-		  current_hash, block_diff, blocktime, best_share);
-	mvwhline(statuswin, 6, 0, '-', 80);
+	mvwprintw(statuswin, 5, 0, " Block: %s...  Diff:%s  Started: %s   ", current_hash, block_diff, blocktime);
+	mvwprintw(statuswin, 6, 0, " %s", block_buf);
+	mvwprintw(statuswin, 7, 0, " %s", shares_buf);
+	mvwprintw(statuswin, 8, 0, " Best share: %4.6Lf  Avg share: %2.4Lf  Avg target: %2.4Lf      ", g_best_share, g_avg_share_difficulty, g_avg_target_difficulty);
+	mvwprintw(statuswin, 9, 0, "%s", pps_buf);
+	mvwprintw(statuswin, 10, 0, "%s", pot_buf);
+	mvwhline(statuswin, 11, 0, '-', 80);
 	mvwhline(statuswin, statusy - 1, 0, '-', 80);
-	mvwprintw(statuswin, devcursor - 1, 1, "[P]ool management %s[S]ettings [D]isplay options [Q]uit",
+	mvwprintw(statuswin, devcursor - 2, 1, "[P]ool management %s[S]ettings [D]isplay options [Q]uit",
 		have_opencl ? "[G]PU management " : "");
+	mvwhline(statuswin, devcursor - 1, 0, '-', 80);
 }
 
 static void adj_width(int var, int *length)
@@ -2001,12 +2074,16 @@ static void curses_print_devstatus(int thr_id)
 	adj_width(cgpu->hw_errors, &hwwidth);
 	adj_width(cgpu->utility, &uwidth);
 
-	wprintw(statuswin, "/%6sh/s | A:%*d R:%*d HW:%*d U:%*.2f/m",
-			displayed_hashes,
-			awidth, cgpu->accepted,
-			rwidth, cgpu->rejected,
-			hwwidth, cgpu->hw_errors,
-		uwidth + 3, cgpu->utility);
+	if(cgpu->api->clock_stats) {
+		int accepted, errors, target;
+
+		cgpu->api->clock_stats(&thr_info[thr_id], &accepted, &errors, &target);
+		wprintw(statuswin, "/%6sh/s | A:%*d R:%*d HW:%*d U:%*.2f/m  C+:%d T:%d E:%d",
+		   displayed_hashes, awidth, cgpu->accepted, rwidth, cgpu->rejected, hwwidth, cgpu->hw_errors, uwidth + 3, cgpu->utility, accepted, target, errors);
+	} else {
+		wprintw(statuswin, "/%6sh/s | A:%*d R:%*d HW:%*d U:%*.2f/m",
+		   displayed_hashes, awidth, cgpu->accepted, rwidth, cgpu->rejected, hwwidth, cgpu->hw_errors, uwidth + 3, cgpu->utility);
+	}
 
 	if (cgpu->api->get_statline) {
 		logline[0] = '\0';
@@ -2209,6 +2286,346 @@ static void reject_pool(struct pool *pool)
 	pool->enabled = POOL_REJECTING;
 }
 
+
+static void uncompress(uint32_t bits, uint32_t *target) {
+
+	uint32_t nb = 0, v;
+	int s = 0;
+
+	nb = ((bits >> 24) & 0xff) - 3;
+	v = bits & 0x00ffffff;
+
+	s = (nb % 4) * 8;
+	if (s == 0) {
+		s = 32;
+		nb--;
+	}
+
+	memset(target, 0, 32);
+	target[(nb >> 2) + 1] = v >> (32 - s);
+	target[nb >> 2] = v << s;
+}
+
+
+static long double g_d1 = 0.0L;
+
+/*
+ * network difficulty, work target difficulty, share difficulty
+ */
+static void diff1_init() {
+
+	static const unsigned char diff1_8[32] = {
+		0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+	};
+
+	int i;
+
+	for(i = 0; i < 32; i++) {
+		d1 *= 256;
+		d1 += diff1_8[i];
+	}
+}
+
+
+static long double diff1() {
+
+	return g_d1;
+}
+
+
+static long double network_difficulty(const struct work *work) {
+
+	int i;
+	uint32_t bits;
+	unsigned char ntarget[32];
+	long double d = 0.0L;
+
+	bits = swab32(*((uint32_t *)(work->data + 72)));
+	uncompress(bits, (uint32_t *)ntarget);
+	for(i = 31; i >= 0; i--) {
+		d *= 256.0;
+		d += ntarget[i];
+	}
+	if(d == 0)
+		return -1;
+
+	return diff1() / d;
+}
+
+
+static long double work_target_difficulty(const struct work *work) {
+
+	int i;
+	long double d = 0.0L;
+
+	for(i = 31; i >= 0; i--) {
+		d *= 256.0;
+		d += work->target[i];
+	}
+	if(d == 0)
+		return -1;
+
+	return diff1() / d;
+}
+
+
+static long double share_difficulty(const struct work *work) {
+
+	int i;
+	long double d = 0.0L;
+
+	for(i = 31; i >= 0; i--) {
+		d *= 256.0;
+		d += work->hash[i];
+	}
+	if(d == 0)
+		return -1;
+
+	return diff1() / d;
+}
+
+
+/*
+ * shares		total shares found (includes vardiff scaling)
+ * shares / sec		secs from start
+ * hashes / sec		hashes estimate from total shares found
+ * hashes / min, hr, day
+ */
+static const int SPD = 24 * 60 * 60;
+pthread_mutex_t g_stats_lock = PTHREAD_MUTEX_INITIALIZER;
+
+typedef struct {
+	time_t		time;
+	uint32_t	seq;
+} stat_key_t;
+
+typedef struct share_stat_s {
+	stat_key_t	time;
+	long double	nd;
+	long double	td;
+	long double	sd;
+	long double	pps_value;
+	long double	pot_value;
+
+	UT_hash_handle	hh;
+} share_stat_t;
+
+share_stat_t *g_share_stat = NULL;
+
+
+typedef struct block_stat_s {
+	stat_key_t	time;
+	time_t		start_time;
+
+	UT_hash_handle	hh;
+} block_stat_t;
+
+block_stat_t *g_block_stat = NULL;
+
+
+static block_stat_t *stats_addblock() {
+
+	static uint32_t seq = 0;
+
+	time_t now;
+	block_stat_t *bs;
+
+	// grab the current time before we make any calculations
+	now = time(0);
+
+	pthread_mutex_lock(&g_stats_lock);
+	if((g_first_block_started == 0) && (g_last_block_started == 0)) {
+		/*
+		 * We just started and this is the first block we've
+		 * been given.  Since we don't know how long its been
+		 * worked on up to now, we don't want to use it for
+		 * statistics.
+		 */
+		g_last_block_started = now;
+	} else if(g_first_block_started == 0) {
+		/*
+		 * This is the second block we've been given and the
+		 * first one where we've gotten it right at the start.
+		 * We will add this block and subsequent blocks to the
+		 * statistics.
+		 */
+		g_first_block_started = g_last_block_started = now;
+		seq = 0;
+	} else {
+		if(!(bs = malloc(sizeof(block_stat_t)))) {
+			perror("malloc");
+			return 0;
+		}
+		memset(bs, 0, sizeof(*bs));
+		bs->time.time = now;
+		bs->start_time = g_last_block_started;
+
+		if(g_last_block_started == now)
+			bs->time.seq = seq++;
+		else
+			seq = 0;
+
+		g_last_block_started = now;
+		HASH_ADD(hh, g_block_stat, time, sizeof(stat_key_t), bs);
+		g_blocks_total += 1;
+		g_blocks_total_time += bs->time.time - bs->start_time;
+	}
+	pthread_mutex_unlock(&g_stats_lock);
+
+	return bs;
+}
+
+
+/*
+ * Return the number of blocks found in the last n seconds.
+ *
+ * Note: This only considers when a block is found.
+ */
+static unsigned long long block_lastn(int n) {
+
+	time_t now = time(0);
+	block_stat_t *p, *next;
+	unsigned long long nblocks = 0;
+
+	pthread_mutex_lock(&g_stats_lock);
+	for(p = g_block_stat; p;) {
+		next = p->hh.next;
+		if(now <= p->time.time + n) {
+			nblocks += 1;
+		} else if(p->time.time + SPD + 1 < now) {
+			HASH_DEL(g_block_stat, p);
+			free(p);
+		}
+		p = next;
+	}
+	pthread_mutex_unlock(&g_stats_lock);
+
+	return nblocks;
+}
+
+
+/*
+ * Return the amount of time all blocks found in the last n seconds took
+ * to generate.
+ */
+static unsigned long long block_time_lastn(int n) {
+
+	time_t now = time(0);
+	block_stat_t *p, *next;
+	unsigned long long total_time = 0;
+
+	pthread_mutex_lock(&g_stats_lock);
+	for(p = g_block_stat; p;) {
+		next = p->hh.next;
+		if(now <= p->time.time + n) {
+			total_time += p->time.time - p->start_time;
+		} else if(p->time.time + SPD + 1 < now) {
+			HASH_DEL(g_block_stat, p);
+			free(p);
+		}
+		p = next;
+	}
+	pthread_mutex_unlock(&g_stats_lock);
+
+	return total_time;
+}
+
+
+static share_stat_t *stats_addshare(long double sd, long double td, long double nd) {
+
+	static uint32_t seq = 0;
+
+	time_t now;
+	uint64_t mi;
+	long double m, pot_f, mr;
+	share_stat_t *ss;
+
+	now = time(0);
+
+	if(!(ss = malloc(sizeof(share_stat_t)))) {
+		perror("malloc");
+		return 0;
+	}
+	memset(ss, 0, sizeof(*ss));
+	ss->time.time = now;
+	ss->nd = nd;
+	ss->td = td;
+	ss->sd = sd;
+	ss->pps_value = 25.0L * td / nd;
+	m = (sd <= 5.0L * nd)? sd : 5.0L * nd;
+	mi = 10 * sd;
+	mr = (long double)mi / 10.0L;
+	pot_f = (1.0L / (5.0L - 4.0L * powl(0.2L * td / nd, 0.2L))) * powl(m / td, 0.8L);
+	ss->pot_value = ss->pps_value * pot_f;
+
+	pthread_mutex_lock(&g_stats_lock);
+	if(g_first_stat == 0) {
+		g_first_stat = now;
+		g_last_stat = now;
+		seq = 0;
+	} else if(g_last_stat == now) {
+		ss->time.seq = ++seq;
+	} else {
+		ss->time.seq = seq = 0;
+	}
+	g_last_stat = now;
+	HASH_ADD(hh, g_share_stat, time, sizeof(stat_key_t), ss);
+	pthread_mutex_unlock(&g_stats_lock);
+
+	return ss;
+}
+
+
+int sort_stats(share_stat_t *a, share_stat_t *b) {
+
+	if(a->time.time == b->time.time)
+		return (a->time.seq < b->time.seq)? -1 : 1;
+	return (a->time.time < b->time.time)? -1 : 1;
+}
+
+
+static void stats_lastn(int n, long double *shares, long double *pps_value, long double *pot_value) {
+
+	time_t now = time(0);
+	long double s = 0, pps = 0, pot = 0;
+	share_stat_t *p, *next;
+
+	pthread_mutex_lock(&g_stats_lock);
+	for(p = g_share_stat; p;) {
+		next = p->hh.next;
+		if(now <= p->time.time + n) {
+			s += p->td;				// the target value determines the value of this share
+			pps += p->pps_value;
+			pot += p->pot_value;
+		} else if(p->time.time + SPD + 1 < now) {
+			HASH_DEL(g_share_stat, p);
+			free(p);
+		}
+		p = next;
+	}
+	pthread_mutex_unlock(&g_stats_lock);
+	if(shares)
+		*shares = s;
+	if(pps_value)
+		*pps_value = pps;
+	if(pot_value)
+		*pot_value = pot;
+}
+
+
+static long double stats_totalsecs() {
+
+	time_t now = time(0);
+
+	if((g_first_stat == 0) || (now == g_first_stat))
+		return 1;
+	return (long double)(now - g_first_stat);
+}
+
+
 /* Theoretically threads could race when modifying accepted and
  * rejected values but the chance of two submits completing at the
  * same time is zero so there is no point adding extra locking */
@@ -2220,13 +2637,58 @@ share_result(json_t *val, json_t *res, json_t *err, const struct work *work,
 	struct cgpu_info *cgpu = thr_info[work->thr_id].cgpu;
 
 	if (json_is_true(res) || (work->gbt && json_is_null(res))) {
+		long double nd, td, sd;
+		share_stat_t *ss;
+
+		nd = network_difficulty(work);
+		td = work_target_difficulty(work);
+		sd = share_difficulty(work);
+		ss = stats_addshare(sd, td, nd);
+		if(!ss)
+			// emit error
+			return;
+
+		// changing global stats
 		mutex_lock(&stats_lock);
+
 		cgpu->accepted++;
 		total_accepted++;
 		pool->accepted++;
 		cgpu->diff_accepted += work->work_difficulty;
 		total_diff_accepted += work->work_difficulty;
 		pool->diff_accepted += work->work_difficulty;
+
+		g_total_target_difficulty_accepted += td;
+		g_avg_target_difficulty = ((total_accepted - 1) * g_avg_target_difficulty + td) / ((long double)total_accepted);
+		g_avg_share_difficulty = ((total_accepted - 1) * g_avg_share_difficulty + sd) / ((long double)total_accepted);
+		g_total_pps += ss->pps_value;
+		g_total_pot += ss->pot_value;
+		if(g_best_share < sd) {
+			g_best_share = sd;
+		}
+		if(g_best_pot < ss->pot_value) {
+			g_best_potf = ss->pot_value / ss->pps_value;
+			g_best_pot = ss->pot_value;
+		}
+
+		stats_lastn(60, &g_s_last_min, 0, 0);
+		stats_lastn(30 * 60, &g_s_last_30mins, &g_pps_last_30mins, &g_pot_last_30mins);
+		stats_lastn(60 * 60, &g_s_last_hr, &g_pps_last_hr, &g_pot_last_hr);
+		stats_lastn(24 * 60 * 60, &g_s_last_24hrs, &g_pps_last_24hrs, &g_pot_last_24hrs);
+		g_avg_sps = g_total_target_difficulty_accepted / stats_totalsecs();
+		g_avg_sps_last_min = g_s_last_min / 60.0L;
+		g_avg_sps_last_30mins = g_s_last_30mins / (30 * 60.0L);
+		g_avg_sps_last_hr = g_s_last_hr / (60 * 60.0L);
+		g_avg_sps_last_24hrs = g_s_last_24hrs / (24 * 60 * 60.0L);
+
+		g_cur_block_time = (g_last_block_started > 0)? (time(0) - g_last_block_started) : 0;
+		g_avg_seconds_per_block = (g_blocks_total > 0)? ((long double)g_blocks_total_time) / ((long double)g_blocks_total) : 0;
+		g_blocks_last_hr = block_lastn(60 * 60);
+		g_blocks_time_last_hr = block_time_lastn(60 * 60);
+		g_blocks_last_24hrs = block_lastn(24 * 60 * 60);
+		g_blocks_time_last_24hrs = block_time_lastn(24 * 60 * 60);
+
+		// finished changing global stats
 		mutex_unlock(&stats_lock);
 
 		pool->seq_rejects = 0;
@@ -2237,12 +2699,21 @@ share_result(json_t *val, json_t *res, json_t *err, const struct work *work,
 		pool->last_share_diff = work->work_difficulty;
 		applog(LOG_DEBUG, "PROOF OF WORK RESULT: true (yay!!!)");
 		if (!QUIET) {
-			if (total_pools > 1)
-				applog(LOG_NOTICE, "Accepted %s %s %d pool %d %s%s",
+			char logbuf[256];
+			unsigned int len;
+
+			if(total_pools > 1)
+				snprintf(logbuf, sizeof(logbuf), "Accepted %s %s %d pool %d %s%s", 
 				       hashshow, cgpu->api->name, cgpu->device_id, work->pool->pool_no, resubmit ? "(resubmit)" : "", worktime);
 			else
-				applog(LOG_NOTICE, "Accepted %s %s %d %s%s",
+				snprintf(logbuf, sizeof(logbuf), "Accepted %s %s %d %s%s", 
 				       hashshow, cgpu->api->name, cgpu->device_id, resubmit ? "(resubmit)" : "", worktime);
+			for(len = strlen(logbuf); len < 65; len++) {
+				logbuf[len] = ' ';
+				logbuf[len + 1] = 0;
+			}
+			snprintf(logbuf + len, sizeof(logbuf) - len, "PPS: %.9Lf BTC  POT: %.9Lf BTC (%.2Lf X)", ss->pps_value, ss->pot_value, ss->pot_value / ss->pps_value);
+			applog(LOG_NOTICE, "%s", logbuf);
 		}
 		sharelog("accept", work);
 		if (opt_shares && total_accepted >= opt_shares) {
@@ -3547,6 +4018,7 @@ static bool test_work_current(struct work *work)
 			quit (1, "test_work_current OOM");
 		strcpy(s->hash, hexstr);
 		s->block_no = new_blocks++;
+		stats_addblock();
 		wr_lock(&blk_lock);
 		/* Only keep the last hour's worth of blocks in memory since
 		 * work from blocks before this is virtually impossible and we
@@ -3984,7 +4456,6 @@ void zero_stats(void)
 	total_secs = 1.0;
 	best_diff = 0;
 	total_diff1 = 0;
-	memset(best_share, 0, 8);
 	suffix_string(best_diff, best_share, 0);
 
 	for (i = 0; i < total_pools; i++) {
@@ -4541,13 +5012,18 @@ static void stratum_share_result(json_t *val, json_t *res_val, json_t *err_val,
 	char hashshow[65];
 	uint32_t *hash32;
 	char diffdisp[16];
-	int intdiff;
+	long double wd, sd;
+
+	wd = work_target_difficulty(work);
+	sd = share_difficulty(work);
 
 	hash32 = (uint32_t *)(work->hash);
-	intdiff = floor(work->work_difficulty);
 	suffix_string(sharediff, diffdisp, 0);
+	/*
 	sprintf(hashshow, "%08lx Diff %s/%d%s", (unsigned long)(hash32[6]), diffdisp, intdiff,
 		work->block? " BLOCK!" : "");
+	 */
+	sprintf(hashshow, "%08lx Diff %3.6Lf/%3.6Lf%s", (unsigned long)(hash32[6]), sd, wd, work->block? " BLOCK!" : "");
 	share_result(val, res_val, err_val, work, hashshow, false, "");
 }
 
@@ -5132,7 +5608,7 @@ static void set_work_target(struct work *work, double diff)
 			data64 = (uint64_t *)(rtarget + 2);
 		else
 			data64 = (uint64_t *)(rtarget + 4);
-		*data64 = htobe64(h64);
+		*data64 = htobe64(h64 + 1);
 		swab256(target, rtarget);
 	} else {
 		/* Support for the classic all FFs just-below-1 diff */
@@ -5290,6 +5766,7 @@ static bool hashtest(struct thr_info *thr, struct work *work)
 	unsigned char hash2[32];
 	uint32_t *hash2_32 = (uint32_t *)hash2;
 	bool ret = false;
+	uint32_t *work_nonce = (uint32_t *)(work->data + 64 + 12);
 
 	flip80(swap32, data32);
 	sha2(swap, 80, hash1);
@@ -5297,18 +5774,21 @@ static bool hashtest(struct thr_info *thr, struct work *work)
 	flip32(hash2_32, work->hash);
 
 	if (hash2_32[7] != 0) {
-		applog(LOG_WARNING, "%s%d: invalid nonce - HW error",
-				thr->cgpu->api->name, thr->cgpu->device_id);
+		applog(LOG_WARNING, "%s%d: HW error - invalid nonce 0x%8.8x",
+				thr->cgpu->api->name, thr->cgpu->device_id, *work_nonce);
 
 		mutex_lock(&stats_lock);
 		hw_errors++;
 		thr->cgpu->hw_errors++;
 		mutex_unlock(&stats_lock);
 
-		if (thr->cgpu->api->hw_error)
+		if (thr->cgpu->api->hw_error) {
 			thr->cgpu->api->hw_error(thr);
+		}
 
 		goto out;
+	} else if(thr->cgpu->api->accepted) {
+		thr->cgpu->api->accepted(thr);
 	}
 
 	ret = fulltest(hash2, work->target);
@@ -6376,6 +6856,10 @@ extern struct device_api modminer_api;
 extern struct device_api ztex_api;
 #endif
 
+#ifdef USE_PICO
+extern struct device_api pico_api;
+#endif
+
 
 static int cgminer_id_count = 0;
 
@@ -6428,6 +6912,8 @@ int main(int argc, char *argv[])
 	unsigned int k;
 	int i, j;
 	char *s;
+
+	diff1_init();
 
 	/* This dangerous functions tramples random dynamically allocated
 	 * variables so do it before anything at all */
@@ -6502,7 +6988,8 @@ int main(int argc, char *argv[])
 	#endif // defined(WIN32)
 #endif
 
-	devcursor = 8;
+	// devcursor = 8;
+	devcursor = 14;
 	logstart = devcursor + 1;
 	logcursor = logstart + 1;
 
@@ -6650,6 +7137,11 @@ int main(int argc, char *argv[])
 #ifdef USE_ZTEX
 	if (!opt_scrypt)
 		ztex_api.api_detect();
+#endif
+
+#ifdef USE_PICO
+	if(!opt_scrypt)
+		pico_api.api_detect();
 #endif
 
 #ifdef WANT_CPUMINE

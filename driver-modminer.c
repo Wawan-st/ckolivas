@@ -42,7 +42,7 @@
 // N.B. in the latest firmware the limit is 250
 // however the voltage/temperature risks preclude that
 #define MODMINER_MAX_CLOCK 230
-#define MODMINER_DEF_CLOCK 200
+#define MODMINER_DEF_CLOCK 212
 #define MODMINER_MIN_CLOCK 160
 
 #define MODMINER_CLOCK_UP 2
@@ -730,13 +730,14 @@ static bool modminer_fpga_init(struct thr_info *thr)
 
 static void get_modminer_statline_before(char *buf, struct cgpu_info *modminer)
 {
+	int i;
 	char info[64];
 
-	sprintf(info, " %s%.1fC %3uMHz  | ",
-			(modminer->temp < 10) ? " " : "",
-			modminer->temp,
-			(unsigned int)(modminer->clock));
-
+	snprintf(info, sizeof(info), " %.1fC", modminer->temp);
+	for(i = strlen(info); i < 15; i++)
+		info[i] = ' ';
+	info[i] = 0;
+	snprintf(info + strlen(info), sizeof(info) - strlen(info), "| %4uMHz | ", (unsigned int)(modminer->clock));
 	strcat(buf, info);
 }
 
@@ -947,7 +948,7 @@ static uint64_t modminer_process_results(struct thr_info *thr)
 			if (state->hw_errors > curr_hw_errors) {
 				gettimeofday(&now, NULL);
 				// Ignore initial errors that often happen
-				if (tdiff(&now, &state->first_work) < 2.0) {
+				if (tdiff(&now, &state->first_work) < 10.0) {
 					state->shares = 0;
 					state->shares_last_hw = 0;
 					state->hw_errors = 0;

@@ -1287,6 +1287,7 @@ static void get_opencl_statline_before(char *buf, struct cgpu_info *gpu)
 		float gt = gpu_temp(gpuid);
 		int gf = gpu_fanspeed(gpuid);
 		int gp;
+		int ge = gpu_engineclock(gpuid);
 
 		if (gt != -1)
 			tailsprintf(buf, "%5.1fC ", gt);
@@ -1299,7 +1300,13 @@ static void get_opencl_statline_before(char *buf, struct cgpu_info *gpu)
 		else
 			tailsprintf(buf, "        ");
 		tailsprintf(buf, "| ");
-	}
+
+		if(ge != -1)
+			tailsprintf(buf, "%4dMHz | ", ge);
+		else
+			tailsprintf(buf, "        | ");
+	} else
+		tailsprintf(buf, "               |         | ");
 }
 #endif
 
