@@ -31,14 +31,15 @@ BITS 64
 
 %define LAB_LOOP_UNROLL 8
 
-extern g_4sha256_k
+extern _g_4sha256_k
 
-global CalcSha256_x64_sse4
+global _CalcSha256_x64_sse4
 ;	CalcSha256	hash(rdi), data(rsi), init(rdx)
 ;	CalcSha256	hash(rcx), data(rdx), init(r8)
-CalcSha256_x64_sse4:
+_CalcSha256_x64_sse4:
 
 	push	rbx
+	push	r8
 %ifidn __OUTPUT_FORMAT__,win64
 	sub	rsp, 16 * 6
 	movdqa	[rsp + 16*0], xmm6
@@ -145,6 +146,7 @@ LAB_CALC:
 
 	pop	temp
 	mov	rax, 0
+	mov	r8, qword _g_4sha256_k
 
 ; Load the init values of the message into the hash.
 
@@ -166,8 +168,9 @@ LAB_LOOP:
 
 %macro	lab_loop_blk 0
 	movntdqa	xmm6, [data+rax*4]
-	paddd	xmm6, g_4sha256_k[rax*4]
+	paddd	xmm6, [r8]
 	add	rax, 4
+	add	r8, 16
 
 	paddd	xmm6, xmm10	; +h
 
@@ -281,6 +284,7 @@ LAB_RET:
 	movdqa	xmm11, [rsp + 16*5]
 	add	rsp, 16 * 6
 %endif
+	pop	r8
 	pop	rbx
 	ret
 

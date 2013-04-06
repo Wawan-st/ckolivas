@@ -61,6 +61,7 @@ AC_CHECK_HEADERS(syslog.h)
 AC_FUNC_ALLOCA
 
 have_win32=false
+have_darwin=false
 PTHREAD_FLAGS="-lpthread"
 DLOPEN_FLAGS="-ldl"
 OPENCL_LIBS="-lOpenCL"
@@ -88,11 +89,13 @@ case $target in
     AC_DEFINE([_WIN32_WINNT], [0x0501], "WinNT version for XP+ support")
     ;;
   powerpc-*-darwin*)
+    have_darwin=true
     CFLAGS="$CFLAGS -faltivec"
     OPENCL_LIBS=""
     PTHREAD_FLAGS=""
     ;;
   *-*-darwin*)
+    have_darwin=true
     OPENCL_LIBS="-framework OpenCL"
     PTHREAD_FLAGS=""
 	;;
@@ -292,6 +295,7 @@ AM_CONDITIONAL([NEED_USBUTILS_C], [test x$bitforce$modminer$bflsc != xnonono])
 AM_CONDITIONAL([HAVE_CURSES], [test x$curses = xyes])
 AM_CONDITIONAL([WANT_JANSSON], [test x$request_jansson = xtrue])
 AM_CONDITIONAL([HAVE_WINDOWS], [test x$have_win32 = xtrue])
+AM_CONDITIONAL([HAVE_OSX], [test x$have_darwin = xtrue])
 AM_CONDITIONAL([HAVE_x86_64], [test x$have_x86_64 = xtrue])
 
 if test "x$bitforce$modminer$bflsc" != xnonono; then
@@ -341,11 +345,15 @@ else
   if test "x$have_x86_64" = xtrue; then
     if test "x$have_win32" = xtrue; then
       YASM_FMT="win64"
+    elif test "x$have_darwin" = xtrue; then
+      YASM_FMT="macho64"
     else
       YASM_FMT="elf64"
     fi
   elif test "x$have_win32" = xtrue; then
     YASM_FMT="coff"
+  elif test "x$have_darwin" = xtrue; then
+      YASM_FMT="macho32"
   else
     YASM_FMT="elf32"
   fi
