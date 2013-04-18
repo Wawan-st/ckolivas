@@ -327,7 +327,7 @@ sha256_sse2_64_new:
     movdqa    [hash1+7*16], rH
 
     mov       data, hash1
-    mov       init, sha256_init
+    mov       init, qword _sha256_init
 
     SHA_256
 
