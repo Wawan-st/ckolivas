@@ -1166,7 +1166,7 @@ struct work {
 	unsigned char	device_target[32];
 #endif
 	double		device_diff;
-	uint64_t	share_diff;
+	double		share_diff;
 
 	int		rolls;
 
