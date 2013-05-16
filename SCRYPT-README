@@ -217,9 +217,16 @@ without crashing the GPU, you will have to use a lower memclock.
 
 Then, and only then, bother trying to increase intensity further.
 
-My final settings were:
---gpu-engine 1141  --gpu-memclock 1875 -I 20
-for a hashrate of 745kH.
+Two good base settings to try are:
+
+-g2 --gpu-engine 1000 --gpu-memclock 1250 -I 13  (700Khash)
+
+and
+
+-g2 --gpu-engine 1100 --gpu-memclock 1800 -I 13  (770Khash)
+
+At 770khash, a standard card will be pulling over 300W, and at 700K is pulling
+about 270. Make sure your power supply and cooling is up to it!
 
 Note I did not bother setting a thread concurrency. Once you have the magic
 endpoint, look at what tc was chosen by the bin file generated and then hard
