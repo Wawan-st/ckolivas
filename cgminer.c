@@ -3152,9 +3152,10 @@ static bool stale_work(struct work *work, bool share)
 	return false;
 }
 
-static uint64_t share_diff(const struct work *work)
+static double share_diff(const struct work *work)
 {
-	uint64_t *data64, d64, ret;
+	uint64_t *data64, d64, diff64;
+	double ret;
 	bool new_best = false;
 	char rhash[32];
 
@@ -3166,16 +3167,17 @@ static uint64_t share_diff(const struct work *work)
 	d64 = be64toh(*data64);
 	if (unlikely(!d64))
 		d64 = 1;
-	ret = diffone / d64;
+	diff64 = diffone / d64;
+	ret = (double)diffone / (double)d64;
 
 	cg_wlock(&control_lock);
-	if (unlikely(ret > best_diff)) {
+	if (unlikely(diff64 > best_diff)) {
 		new_best = true;
-		best_diff = ret;
+		best_diff = diff64;
 		suffix_string(best_diff, best_share, 0);
 	}
-	if (unlikely(ret > work->pool->best_diff))
-		work->pool->best_diff = ret;
+	if (unlikely(diff64 > work->pool->best_diff))
+		work->pool->best_diff = diff64;
 	cg_wunlock(&control_lock);
 
 	if (unlikely(new_best))
