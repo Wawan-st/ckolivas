@@ -877,7 +877,8 @@ extern int swork_id;
 extern pthread_rwlock_t netacc_lock;
 
 extern const uint32_t sha256_init_state[];
-extern json_t *json_rpc_call(CURL *curl, const char *url, const char *userpass,
+extern json_t *json_rpc_call(CURL *curl, const char *url, const char *cert,
+			     const char *userpass,
 			     const char *rpc_req, bool, bool, int *,
 			     struct pool *pool, bool);
 extern const char *proxytype(curl_proxytype proxytype);
@@ -1107,6 +1108,7 @@ struct pool {
 
 	char *rpc_req;
 	char *rpc_url;
+	char *rpc_cert;
 	char *rpc_userpass;
 	char *rpc_user, *rpc_pass;
 	curl_proxytype rpc_proxytype;
