@@ -1616,6 +1616,9 @@ static void gpustatus(struct io_data *io_data, int gpu, bool isjson, bool precom
 		root = api_add_int(root, "GPU Activity", &ga, false);
 		root = api_add_int(root, "Powertune", &pt, false);
 		double mhs = cgpu->total_mhashes / total_secs;
+		double rolling = cgpu->rolling;
+		if (rolling < 1)  
+			mhs *= 1000;
 		root = api_add_mhs(root, "MHS av", &mhs, false);
 		char mhsname[27];
 		sprintf(mhsname, "MHS %ds", opt_log_interval);
