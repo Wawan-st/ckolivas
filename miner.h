@@ -238,6 +238,7 @@ enum drv_driver {
 	DRIVER_ZTEX,
 	DRIVER_BFLSC,
 	DRIVER_AVALON,
+	DRIVER_BITMAIN,
 	DRIVER_MAX
 };
 
@@ -453,6 +454,12 @@ struct cgpu_info {
 #endif
 	};
 #ifdef USE_AVALON
+	struct work **works;
+	int work_array;
+	int queued;
+	int results;
+#endif
+#ifdef USE_BITMAIN
 	struct work **works;
 	int work_array;
 	int queued;
@@ -908,6 +915,9 @@ extern bool opt_worktime;
 #ifdef USE_AVALON
 extern char *opt_avalon_options;
 #endif
+#ifdef USE_BITMAIN
+extern char *opt_bitmain_options;
+#endif
 #ifdef USE_USBUTILS
 extern char *opt_usb_select;
 extern int opt_usbdump;
@@ -1360,6 +1370,8 @@ extern struct work *get_queued(struct cgpu_info *cgpu);
 extern struct work *__find_work_bymidstate(struct work *que, char *midstate, size_t midstatelen, char *data, int offset, size_t datalen);
 extern struct work *find_queued_work_bymidstate(struct cgpu_info *cgpu, char *midstate, size_t midstatelen, char *data, int offset, size_t datalen);
 extern struct work *clone_queued_work_bymidstate(struct cgpu_info *cgpu, char *midstate, size_t midstatelen, char *data, int offset, size_t datalen);
+extern struct work *__find_work_byid(struct work *que, uint32_t id);
+extern struct work *find_queued_work_byid(struct cgpu_info *cgpu, uint32_t id);
 extern void work_completed(struct cgpu_info *cgpu, struct work *work);
 extern struct work *take_queued_work_bymidstate(struct cgpu_info *cgpu, char *midstate, size_t midstatelen, char *data, int offset, size_t datalen);
 extern void hash_queued_work(struct thr_info *mythr);
