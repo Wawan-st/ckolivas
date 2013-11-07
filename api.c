@@ -437,6 +437,9 @@ static const char *JSON_PARAMETER = "parameter";
 #define MSG_LOCKOK 123
 #define MSG_LOCKDIS 124
 
+#define MSG_CHNGPOOL 200
+
+
 enum code_severity {
 	SEVERITY_ERR,
 	SEVERITY_WARN,
@@ -577,6 +580,7 @@ struct CODES {
  { SEVERITY_ERR,   MSG_INVPDP,	PARAM_STR,	"Invalid addpool details '%s'" },
  { SEVERITY_ERR,   MSG_TOOMANYP,PARAM_NONE,	"Reached maximum number of pools (%d)" },
  { SEVERITY_SUCC,  MSG_ADDPOOL,	PARAM_STR,	"Added pool '%s'" },
+ { SEVERITY_SUCC,  MSG_CHNGPOOL,PARAM_POOL, "Changed pool %d: '%s" },
  { SEVERITY_ERR,   MSG_REMLASTP,PARAM_POOL,	"Cannot remove last pool %d:'%s'" },
  { SEVERITY_ERR,   MSG_ACTPOOL, PARAM_POOL,	"Cannot remove active pool %d:'%s'" },
  { SEVERITY_SUCC,  MSG_REMPOOL, PARAM_BOTH,	"Removed pool %d:'%s'" },
@@ -2916,6 +2920,56 @@ static void addpool(struct io_data *io_data, __maybe_unused SOCKETTYPE c, char *
 	ptr = NULL;
 }
 
+static void changepool(struct io_data *io_data, __maybe_unused SOCKETTYPE c, char *param, bool isjson, __maybe_unused char group)
+{
+	char *url, *user, *pass, *ptr;
+	struct pool *pool;
+	int id;
+
+	if (total_pools == 0) {
+		message(io_data, MSG_NOPOOL, 0, NULL, isjson);
+		return;
+	}
+
+	if (param == NULL || *param == '\0') {
+		message(io_data, MSG_MISPID, 0, NULL, isjson);
+		return;
+	}
+
+	// Get the pool id
+	ptr = strchr(param, ',');
+	if (!ptr) {
+		message(io_data, MSG_CONVAL, 0, param, isjson);
+		return;
+	}
+
+	*(ptr++) = '\0';
+
+	id = atoi(param);
+
+	// Get the rest of the information
+	if (!pooldetails(ptr, &url, &user, &pass)) {
+		ptr = escape_string(param, isjson);
+		message(io_data, MSG_INVPDP, 0, ptr, isjson);
+		if (ptr != param)
+			free(ptr);
+		ptr = NULL;
+		return;
+	}
+
+	// Ok so now we have everything we need to replace
+	// the pool's url user and password
+	pool = pools[id];
+
+	change_pool_details(pool, url, user, pass);
+
+	ptr = escape_string(url, isjson);
+	message(io_data, MSG_CHNGPOOL, id, ptr, isjson);
+	if (ptr != url)
+		free(ptr);
+	ptr = NULL;
+}
+
 static void enablepool(struct io_data *io_data, __maybe_unused SOCKETTYPE c, char *param, bool isjson, __maybe_unused char group)
 {
 	struct pool *pool;
@@ -4267,6 +4321,7 @@ struct CMDS {
 	{ "pgacount",		pgacount,	false },
 	{ "switchpool",		switchpool,	true },
 	{ "addpool",		addpool,	true },
+	{ "changepool",		changepool, true },
 	{ "poolpriority",	poolpriority,	true },
 	{ "poolquota",		poolquota,	true },
 	{ "enablepool",		enablepool,	true },
