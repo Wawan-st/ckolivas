@@ -7431,6 +7431,32 @@ void _quit(int status)
 	exit(status);
 }
 
+bool change_pool_details(struct pool *pool, char *url, char *user, char *pass)
+{
+	size_t siz;
+
+	suspend_stratum(pool);
+
+	// delete the old info
+	free(pool->rpc_url);
+	free(pool->rpc_userpass);
+
+	url = get_proxy(url, pool);
+
+	pool->rpc_url = url;
+	pool->rpc_user = user;
+	pool->rpc_pass = pass;
+	siz = strlen(pool->rpc_user) + strlen(pool->rpc_pass) + 2;
+	pool->rpc_userpass = malloc(siz);
+	if (!pool->rpc_userpass)
+		quit(1, "Failed to malloc userpass");
+	snprintf(pool->rpc_userpass, siz, "%s:%s", pool->rpc_user, pool->rpc_pass);
+
+	restart_stratum(pool);
+
+	return true;
+}
+
 #ifdef HAVE_CURSES
 char *curses_input(const char *query)
 {
