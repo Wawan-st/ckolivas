@@ -142,13 +142,12 @@ static int avalon_write(struct cgpu_info *avalon, char *buf, ssize_t len, int ep
 	return AVA_SEND_OK;
 }
 
-static int avalon_send_task(const struct avalon_task *at, struct cgpu_info *avalon)
+static int avalon_send_task(const struct avalon_task *at, struct cgpu_info *avalon,
+			    struct avalon_info *info)
 
 {
 	uint8_t buf[AVALON_WRITE_SIZE + 4 * AVALON_DEFAULT_ASIC_NUM];
 	int delay, ret, i, ep = C_AVALON_TASK;
-	struct avalon_info *info;
-	cgtimer_t ts_start;
 	uint32_t nonce_range;
 	size_t nr_len;
 
@@ -189,7 +188,6 @@ static int avalon_send_task(const struct avalon_task *at, struct cgpu_info *aval
 	tt |= ((buf[4] & 0x80) ? (1 << 0) : 0);
 	buf[4] = tt;
 #endif
-	info = avalon->device_data;
 	delay = nr_len * 10 * 1000000;
 	delay = delay / info->baud;
 	delay += 4000;
@@ -202,11 +200,14 @@ static int avalon_send_task(const struct avalon_task *at, struct cgpu_info *aval
 		applog(LOG_DEBUG, "Avalon: Sent(%u):", (unsigned int)nr_len);
 		hexdump(buf, nr_len);
 	}
-	cgsleep_prepare_r(&ts_start);
-	ret = avalon_write(avalon, (char *)buf, nr_len, ep);
-	cgsleep_us_r(&ts_start, delay);
+	/* Sleep from the last time we sent data */
+	cgsleep_us_r(&info->cgsent, info->send_delay);
 
-	applog(LOG_DEBUG, "Avalon: Sent: Buffer delay: %dus", delay);
+	cgsleep_prepare_r(&info->cgsent);
+	ret = avalon_write(avalon, (char *)buf, nr_len, ep);
+
+	applog(LOG_DEBUG, "Avalon: Sent: Buffer delay: %dus", info->send_delay);
+	info->send_delay = delay;
 
 	return ret;
 }
@@ -290,14 +291,29 @@ static inline bool avalon_cts(char c)
 
 static int avalon_read(struct cgpu_info *avalon, char *buf, size_t bufsize, int ep)
 {
-	int err, amount;
+	size_t total = 0, readsize = bufsize + 2;
+	char readbuf[AVALON_READBUF_SIZE];
+	int err, amount, ofs = 2, cp;
 
-	err = usb_read_once(avalon, buf, bufsize, &amount, ep);
+	err = usb_read_once(avalon, readbuf, readsize, &amount, ep);
 	applog(LOG_DEBUG, "%s%i: Get avalon read got err %d",
 	       avalon->drv->name, avalon->device_id, err);
-	if (unlikely(err && err != LIBUSB_ERROR_TIMEOUT))
-		amount = -1;
-	return amount;
+
+	if (amount < 2)
+		goto out;
+
+	/* The first 2 of every 64 bytes are status on FTDIRL */
+	while (amount > 2) {
+		cp = amount - 2;
+		if (cp > 62)
+			cp = 62;
+		memcpy(&buf[total], &readbuf[ofs], cp);
+		total += cp;
+		amount -= cp + 2;
+		ofs += 64;
+	}
+out:
+	return total;
 }
 
 static int avalon_reset(struct cgpu_info *avalon, bool initial)
@@ -319,7 +335,7 @@ static int avalon_reset(struct cgpu_info *avalon, bool initial)
 			 AVALON_DEFAULT_FREQUENCY);
 
 	wait_avalon_ready(avalon);
-	ret = avalon_send_task(&at, avalon);
+	ret = avalon_send_task(&at, avalon, info);
 	if (unlikely(ret == AVA_SEND_ERROR))
 		return -1;
 
@@ -560,7 +576,7 @@ static void avalon_idle(struct cgpu_info *avalon, struct avalon_info *info)
 		avalon_init_task(&at, 0, 0, info->fan_pwm, info->timeout,
 				 info->asic_count, info->miner_count, 1, 1,
 				 info->frequency);
-		avalon_send_task(&at, avalon);
+		avalon_send_task(&at, avalon, info);
 	}
 	applog(LOG_WARNING, "%s%i: Idling %d miners", avalon->drv->name, avalon->device_id, i);
 	wait_avalon_ready(avalon);
@@ -760,7 +776,9 @@ static bool avalon_detect_one(libusb_device *dev, struct usb_find_devices *found
 				 &asic_count, &timeout, &frequency,
 				 (usb_ident(avalon) == IDENT_BBF && opt_bitburner_fury_options != NULL) ? opt_bitburner_fury_options : opt_avalon_options);
 
-	avalon->usbdev->usb_type = USB_TYPE_FTDI;
+	/* Even though this is an FTDI type chip, we want to do the parsing
+	 * all ourselves so set it to std usb type */
+	avalon->usbdev->usb_type = USB_TYPE_STD;
 
 	/* We have a real Avalon! */
 	avalon_initialise(avalon);
@@ -1003,11 +1021,13 @@ static void *avalon_get_results(void *userdata)
 	return NULL;
 }
 
-static void avalon_rotate_array(struct cgpu_info *avalon)
+static void avalon_rotate_array(struct cgpu_info *avalon, struct avalon_info *info)
 {
+	mutex_lock(&info->qlock);
 	avalon->queued = 0;
 	if (++avalon->work_array >= AVALON_ARRAY_SIZE)
 		avalon->work_array = 0;
+	mutex_unlock(&info->qlock);
 }
 
 static void bitburner_rotate_array(struct cgpu_info *avalon)
@@ -1116,7 +1136,6 @@ static void *avalon_send_tasks(void *userdata)
 		us_timeout = 0x100000000ll / info->asic_count / info->frequency;
 		cgsleep_prepare_r(&ts_start);
 
-		mutex_lock(&info->qlock);
 		start_count = avalon->work_array * avalon_get_work_count;
 		end_count = start_count + avalon_get_work_count;
 		for (i = start_count, j = 0; i < end_count; i++, j++) {
@@ -1127,6 +1146,7 @@ static void *avalon_send_tasks(void *userdata)
 				break;
 			}
 
+			mutex_lock(&info->qlock);
 			if (likely(j < avalon->queued && !info->overheat && avalon->works[i])) {
 				avalon_init_task(&at, 0, 0, info->fan_pwm,
 						info->timeout, info->asic_count,
@@ -1147,8 +1167,9 @@ static void *avalon_send_tasks(void *userdata)
 				 * idling any miners. */
 				avalon_reset_auto(info);
 			}
+			mutex_unlock(&info->qlock);
 
-			ret = avalon_send_task(&at, avalon);
+			ret = avalon_send_task(&at, avalon, info);
 
 			if (unlikely(ret == AVA_SEND_ERROR)) {
 				/* Send errors are fatal */
@@ -1159,8 +1180,7 @@ static void *avalon_send_tasks(void *userdata)
 			}
 		}
 
-		avalon_rotate_array(avalon);
-		mutex_unlock(&info->qlock);
+		avalon_rotate_array(avalon, info);
 
 		cgsem_post(&info->qsem);
 
@@ -1520,10 +1540,9 @@ static void avalon_flush_work(struct cgpu_info *avalon)
 {
 	struct avalon_info *info = avalon->device_data;
 
-	mutex_lock(&info->qlock);
-	/* Will overwrite any work queued */
+	/* Will overwrite any work queued. Do this unlocked since it's just
+	 * changing a single non-critical value and prevents deadlocks */
 	avalon->queued = 0;
-	mutex_unlock(&info->qlock);
 
 	/* Signal main loop we need more work */
 	cgsem_post(&info->qsem);
