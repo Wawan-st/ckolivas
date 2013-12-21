@@ -50,9 +50,9 @@ static void bab_detect(__maybe_unused bool hotplug)
 #define BAB_GPIO_CLR BAB_ADDR(10)
 #define BAB_GPIO_LEVEL BAB_ADDR(13)
 
-#define BAB_MAXCHIPS 256
+#define BAB_MAXCHIPS 384
 #define BAB_MAXBUF (BAB_MAXCHIPS * 512)
-#define BAB_MAXBANKS 4
+#define BAB_MAXBANKS 8
 #define BAB_CORES 16
 #define BAB_X_COORD 21
 #define BAB_Y_COORD 36
@@ -122,7 +122,7 @@ static const uint32_t bab_test_data[BAB_TEST_DATA] = {
 };
 
 //maximum number of chips on alternative bank
-// #define BANKCHIPS 64
+#define BAB_BANKCHIPS 96
 
 /*
  * maximum chip speed available for auto tuner
@@ -1166,7 +1166,25 @@ bad_out:
 
 static void bab_init_chips(struct cgpu_info *babcgpu, struct bab_info *babinfo)
 {
-	bab_detect_chips(babcgpu, babinfo, 0, 0, BAB_MAXCHIPS);
+    // TODO: How do we detect the version at runtime?
+    int version = 2;
+
+    if (version == 1) {
+        bab_detect_chips(babcgpu, babinfo, 0, 0, BAB_MAXCHIPS);
+    } else {
+        int chips = 0, bank, chip;
+        for (bank = 1; bank <= BAB_MAXBANKS; bank++) {
+            for (chip = 0; chip < BAB_MAXCHIPS && chip < chips + BAB_BANKCHIPS; chip++) {
+                babinfo->chip_spis[chip] = 625000;
+            }
+            bab_reset(bank, 64);
+            bab_detect_chips(babcgpu, babinfo, bank, chips, chips + BAB_BANKCHIPS);
+            printf("bank %i, chips = %i\n", bank, babinfo->chips);
+            chips = babinfo->chips;
+        }
+        bab_reset(0, 8);
+    }
+
 	memcpy(babinfo->old_conf, babinfo->chip_conf, sizeof(babinfo->old_conf));
 	memcpy(babinfo->old_fast, babinfo->chip_fast, sizeof(babinfo->old_fast));
 }
@@ -1403,8 +1421,8 @@ static bool oknonce(struct thr_info *thr, struct cgpu_info *babcgpu, int chip, u
 {
 	struct bab_info *babinfo = (struct bab_info *)(babcgpu->device_data);
 	BLIST *bitem;
-	unsigned int links, tests;
-	int i;
+	unsigned int links, tests, tnonce, coor;
+	int offset, x, y, offset_count;
 
 	babinfo->chip_nonces[chip]++;
 
@@ -1440,11 +1458,29 @@ static bool oknonce(struct thr_info *thr, struct cgpu_info *babcgpu, int chip, u
 					babcgpu->device_id,
 					chip, links);
 		} else {
-			for (i = 0; i < BAB_NONCE_OFFSETS; i++) {
+            if ((nonce & 0xff) < 0x1c) {
+                offset = 2;
+                offset_count = BAB_NONCE_OFFSETS;
+                tests += 2;
+            } else {
+                offset = 0;
+                offset_count = 2;
+            }
+			for (; offset < offset_count; offset++) {
 				tests++;
-				if (test_nonce(bitem->work, nonce + bab_nonce_offsets[i])) {
+                tnonce = nonce + bab_nonce_offsets[offset];
+                if (nonce == 0xFFFFFFFF || nonce == 0x00000000)
+                    continue;
+                coor = ((tnonce >> 29) & 0x07) | ((tnonce >> 19) & 0x3F8);
+                x = coor % 24;
+                y = coor / 24;
+                if (y >= 36 || (offset == 1 && x < 17) ||
+                        (offset == 0 && (x < 1 || (x > 4 && x < 9) || x > 15))) {
+                    continue;
+                }
+				if (test_nonce(bitem->work, tnonce)) {
 					submit_tested_work(thr, bitem->work);
-					babinfo->nonce_offset_count[i]++;
+					babinfo->nonce_offset_count[offset]++;
 					babinfo->chip_good[chip]++;
 					bitem->nonces++;
 					babinfo->new_nonces++;
@@ -1459,6 +1495,8 @@ static bool oknonce(struct thr_info *thr, struct cgpu_info *babcgpu, int chip, u
 					return true;
 				}
 			}
+            if (offset == 2)
+                tests += 1;
 		}
 		bitem = bitem->next;
 		links++;

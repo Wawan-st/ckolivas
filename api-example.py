@@ -13,6 +13,7 @@
 #NOTE: When adding a param with a pipe | in bash or ZSH you must wrap the arg in quotes
 #E.G "pga|0"
 
+from pprint import pprint
 import socket
 import json
 import sys
@@ -48,5 +49,5 @@ else:
 response = linesplit(s)
 response = response.replace('\x00','')
 response = json.loads(response)
-print response
+pprint(response)
 s.close()
