@@ -1029,6 +1029,7 @@ extern bool detect_stratum(struct pool *pool, char *url);
 extern void print_summary(void);
 extern void adjust_quota_gcd(void);
 extern struct pool *add_pool(void);
+extern bool change_pool_details(struct pool *pool, char *url, char *user, char *pass);
 extern bool add_pool_details(struct pool *pool, bool live, char *url, char *user, char *pass);
 
 #define MAX_DEVICES 4096
