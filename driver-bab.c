@@ -284,6 +284,7 @@ struct bab_info {
 
 	int spifd;
 	int chips;
+	int boards;
 	uint32_t chip_spis[BAB_MAXCHIPS+1];
 
 	cgsem_t scan_work;
@@ -1003,7 +1004,7 @@ bad_out:
 
 static void bab_init_chips(struct cgpu_info *babcgpu, struct bab_info *babinfo)
 {
-	int chip, chipoff, bank;
+	int chip, chipoff, bank, chips, new_chips, boards;
 
 	applog(LOG_WARNING, "%s V1 first test for %d chips ...",
 			    babcgpu->drv->dname, BAB_V1_CHIP_TEST);
@@ -1021,6 +1022,7 @@ static void bab_init_chips(struct cgpu_info *babcgpu, struct bab_info *babinfo)
 		applog(LOG_WARNING, "%s V2 test %d banks %d chips ...",
 				    babcgpu->drv->dname, BAB_MAXBANKS, BAB_MAXCHIPS);
 
+		chips = 0;
 		for (bank = 1; bank <= BAB_MAXBANKS; bank++) {
 			for (chipoff = 0; chipoff < BAB_BANKCHIPS; chipoff++) {
 				chip = babinfo->chips + chipoff;
@@ -1028,6 +1030,16 @@ static void bab_init_chips(struct cgpu_info *babcgpu, struct bab_info *babinfo)
 			}
 			bab_reset(bank, 64);
 			bab_detect_chips(babcgpu, babinfo, bank, babinfo->chips, babinfo->chips + BAB_BANKCHIPS);
+			new_chips = babinfo->chips - chips;
+			chips = babinfo->chips;
+			if (new_chips == 0)
+				boards = 0;
+			else
+				boards = (int)((float)(new_chips - 1) / BAB_BOARDCHIPS) + 1;
+			applog(LOG_WARNING, "%s V2 bank %d: %d chips %d board%s",
+					    babcgpu->drv->dname, bank, new_chips,
+					    boards, (boards == 1) ? "" : "s");
+			babinfo->boards += boards;
 		}
 		bab_reset(0, 8);
 	}
@@ -1073,7 +1085,15 @@ static void bab_detect(bool hotplug)
 
 	bab_init_chips(babcgpu, babinfo);
 
-	applog(LOG_WARNING, "%s found %d chips", babcgpu->drv->dname, babinfo->chips);
+	if (babinfo->boards) {
+		applog(LOG_WARNING, "%s found %d chips %d board%s",
+				    babcgpu->drv->dname, babinfo->chips,
+				    babinfo->boards,
+				    (babinfo->boards == 1) ? "" : "s");
+	} else {
+		applog(LOG_WARNING, "%s found %d chips",
+				    babcgpu->drv->dname, babinfo->chips);
+	}
 
 	if (babinfo->chips == 0)
 		goto cleanup;
