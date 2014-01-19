@@ -282,7 +282,6 @@ typedef struct ritem {
 // Nonce History
 typedef struct nitem {
 	struct timeval found;
-	bool good;
 } NITEM;
 
 #define DATAW(_item) ((WITEM *)(_item->data))
@@ -421,11 +420,8 @@ struct bab_info {
 
 	// Nonce History
 	K_LIST *nfree_list;
-	K_STORE *nonce_history[BAB_MAXCHIPS];
-
-	// nfree_list lock is used to access these also
-	uint64_t history_good[BAB_MAXCHIPS];
-	uint64_t history_bad[BAB_MAXCHIPS];
+	K_STORE *good_nonces[BAB_MAXCHIPS];
+	K_STORE *bad_nonces[BAB_MAXCHIPS];
 
 	struct timeval last_did;
 
@@ -1248,8 +1244,10 @@ static void bab_detect(bool hotplug)
 
 	babinfo->nfree_list = k_new_list("Nonce History", sizeof(WITEM),
 					 ALLOC_NITEMS, LIMIT_NITEMS, true);
-	for (i = 0; i < BAB_MAXCHIPS; i++)
-		babinfo->nonce_history[i] = k_new_store(babinfo->nfree_list);
+	for (i = 0; i < BAB_MAXCHIPS; i++) {
+		babinfo->good_nonces[i] = k_new_store(babinfo->nfree_list);
+		babinfo->bad_nonces[i] = k_new_store(babinfo->nfree_list);
+	}
 
 	// Exclude detection
 	cgtime(&(babcgpu->dev_start_tv));
@@ -1466,7 +1464,9 @@ static uint32_t decnonce(uint32_t in)
 	return out;
 }
 
-#if 0
+#define UPDATE_HISTORY 1
+
+#if UPDATE_HISTORY
 static void process_history(struct bab_info *babinfo, int chip, struct timeval *when, bool good, struct timeval *now)
 {
 	K_ITEM *item;
@@ -1476,30 +1476,35 @@ static void process_history(struct bab_info *babinfo, int chip, struct timeval *
 	K_WLOCK(babinfo->nfree_list);
 	item = k_unlink_head(babinfo->nfree_list);
 	memcpy(&(DATAN(item)->found), when, sizeof(*when));
-	DATAN(item)->good = good;
-	k_add_head(babinfo->nonce_history[chip], item);
 	if (good)
-		babinfo->history_good[chip]++;
+		k_add_head(babinfo->good_nonces[chip], item);
 	else
-		babinfo->history_bad[chip]++;
+		k_add_head(babinfo->bad_nonces[chip], item);
 
 	// Remove all expired history
 	for (i = 0; i < babinfo->chips; i++) {
-		item = babinfo->nonce_history[i]->tail;
+		item = babinfo->good_nonces[i]->tail;
 		while (item) {
 			diff = tdiff(now, &(DATAN(item)->found));
 			if (diff < HISTORY_TIME_S)
 				break;
 
-			if (DATAN(item)->good)
-				babinfo->history_good[i]--;
-			else
-				babinfo->history_bad[i]--;
-
-			k_unlink_item(babinfo->nonce_history[i], item);
+			k_unlink_item(babinfo->good_nonces[i], item);
 			k_add_head(babinfo->nfree_list, item);
 
-			item = babinfo->nonce_history[i]->tail;
+			item = babinfo->good_nonces[i]->tail;
+		}
+
+		item = babinfo->bad_nonces[i]->tail;
+		while (item) {
+			diff = tdiff(now, &(DATAN(item)->found));
+			if (diff < HISTORY_TIME_S)
+				break;
+
+			k_unlink_item(babinfo->bad_nonces[i], item);
+			k_add_head(babinfo->nfree_list, item);
+
+			item = babinfo->bad_nonces[i]->tail;
 		}
 	}
 	K_WUNLOCK(babinfo->nfree_list);
@@ -1590,7 +1595,9 @@ static bool oknonce(struct thr_info *thr, struct cgpu_info *babcgpu, int chip, u
 							babinfo->max_proc_links = proc_links;
 						babinfo->total_work_links += work_links;
 
-						//process_history(babinfo, chip, when, true, &now);
+#if UPDATE_HISTORY
+						process_history(babinfo, chip, when, true, &now);
+#endif
 						return true;
 					}
 				}
@@ -1615,7 +1622,9 @@ static bool oknonce(struct thr_info *thr, struct cgpu_info *babcgpu, int chip, u
 		babinfo->fail_total_links += links;
 		babinfo->fail_total_work_links += work_links;
 
-		//process_history(babinfo, chip, when, false, &now);
+#if UPDATE_HISTORY
+		process_history(babinfo, chip, when, false, &now);
+#endif
 	} else {
 		babinfo->initial_ignored++;
 		babinfo->ign_total_tests += tests;
@@ -1947,7 +1956,8 @@ static struct api_data *bab_api_stats(struct cgpu_info *babcgpu)
 {
 	struct bab_info *babinfo = (struct bab_info *)(babcgpu->device_data);
 	uint64_t history_good[BAB_MAXCHIPS], history_bad[BAB_MAXCHIPS];
-	double history_elapsed[BAB_MAXCHIPS];
+	double history_elapsed[BAB_MAXCHIPS], diff;
+	bool elapsed_is_good[BAB_MAXCHIPS];
 	int speeds[BAB_CHIP_SPEEDS];
 	struct api_data *root = NULL;
 	char data[2048];
@@ -1955,6 +1965,7 @@ static struct api_data *bab_api_stats(struct cgpu_info *babcgpu)
 	int spi_work, chip_work, i, to, j, sp;
 	struct timeval now;
 	double elapsed, ghs;
+	float ghs_sum, ghs_tot;
 	float tot, hw;
 	K_ITEM *item;
 
@@ -1991,21 +2002,40 @@ static struct api_data *bab_api_stats(struct cgpu_info *babcgpu)
 
 	root = api_add_elapsed(root, "Device Elapsed", &elapsed, true);
 
+	root = api_add_string(root, "History Enabled",
+#if UPDATE_HISTORY
+				"true",
+#else
+				"false",
+#endif
+				true);
+
 	int chs = HISTORY_TIME_S;
 	root = api_add_int(root, "Chip History Limit", &chs, true);
 
 	K_RLOCK(babinfo->nfree_list);
-	memcpy(&history_good, &(babinfo->history_good), sizeof(history_good));
-	memcpy(&history_bad, &(babinfo->history_bad), sizeof(history_bad));
 	for (i = 0; i < babinfo->chips; i++) {
-		item = babinfo->nonce_history[i]->tail;
+		item = babinfo->good_nonces[i]->tail;
+		elapsed_is_good[i] = true;
 		if (!item)
 			history_elapsed[i] = 0;
 		else
 			history_elapsed[i] = tdiff(&now, &(DATAN(item)->found));
+
+		item = babinfo->bad_nonces[i]->tail;
+		if (item) {
+			diff = tdiff(&now, &(DATAN(item)->found));
+			if (history_elapsed[i] < diff) {
+				history_elapsed[i] = diff;
+				elapsed_is_good[i] = false;
+			}
+		}
+		history_good[i] = babinfo->good_nonces[i]->count;
+		history_bad[i] = babinfo->bad_nonces[i]->count;
 	}
 	K_RUNLOCK(babinfo->nfree_list);
 
+	ghs_tot = 0;
 	for (i = 0; i < babinfo->chips; i += CHIPS_PER_STAT) {
 		to = i + CHIPS_PER_STAT - 1;
 		if (to >= babinfo->chips)
@@ -2081,6 +2111,7 @@ static struct api_data *bab_api_stats(struct cgpu_info *babcgpu)
 		snprintf(buf, sizeof(buf), "HW%% %d - %d", i, to);
 		root = api_add_string(root, buf, data, true);
 
+		ghs_sum = 0;
 		data[0] = '\0';
 		for (j = i; j <= to; j++) {
 			if (elapsed > 0) {
@@ -2093,16 +2124,20 @@ static struct api_data *bab_api_stats(struct cgpu_info *babcgpu)
 					"%s%.3f",
 					j == i ? "" : " ", ghs);
 			strcat(data, buf);
+			ghs_sum += (float)ghs;
 		}
 		snprintf(buf, sizeof(buf), "GHs %d - %d", i, to);
 		root = api_add_string(root, buf, data, true);
+
+		snprintf(buf, sizeof(buf), "Sum GHs %d - %d", i, to);
+		root = api_add_avg(root, buf, &ghs_sum, true);
 
 		data[0] = '\0';
 		for (j = i; j <= to; j++) {
 			snprintf(buf, sizeof(buf),
 					"%s%"PRIu64,
 					j == i ? "" : " ",
-					babinfo->history_good[j]);
+					history_good[j]);
 			strcat(data, buf);
 		}
 		snprintf(buf, sizeof(buf), "History Good %d - %d", i, to);
@@ -2113,7 +2148,7 @@ static struct api_data *bab_api_stats(struct cgpu_info *babcgpu)
 			snprintf(buf, sizeof(buf),
 					"%s%"PRIu64,
 					j == i ? "" : " ",
-					babinfo->history_bad[j]);
+					history_bad[j]);
 			strcat(data, buf);
 		}
 		snprintf(buf, sizeof(buf), "History Bad %d - %d", i, to);
@@ -2121,9 +2156,9 @@ static struct api_data *bab_api_stats(struct cgpu_info *babcgpu)
 
 		data[0] = '\0';
 		for (j = i; j <= to; j++) {
-			tot = (float)(babinfo->history_good[j] + babinfo->history_bad[j]);
+			tot = (float)(history_good[j] + history_bad[j]);
 			if (tot != 0)
-				hw = 100.0 * (float)(babinfo->history_bad[j]) / tot;
+				hw = 100.0 * (float)(history_bad[j]) / tot;
 			else
 				hw = 0;
 			snprintf(buf, sizeof(buf),
@@ -2134,11 +2169,15 @@ static struct api_data *bab_api_stats(struct cgpu_info *babcgpu)
 		snprintf(buf, sizeof(buf), "History HW%% %d - %d", i, to);
 		root = api_add_string(root, buf, data, true);
 
+		ghs_sum = 0;
 		data[0] = '\0';
 		for (j = i; j <= to; j++) {
 			if (history_elapsed[j] > 0) {
-				// elapsed - thus exclude the start item
-				ghs = (double)(babinfo->history_good[j] - 1) * 0xffffffffull /
+				double num = history_good[j];
+				// exclude the first nonce?
+				if (elapsed_is_good[j])
+					num--;
+				ghs = num * 0xffffffffull /
 					history_elapsed[j] / 1000000000.0;
 			} else
 				ghs = 0;
@@ -2147,6 +2186,8 @@ static struct api_data *bab_api_stats(struct cgpu_info *babcgpu)
 					"%s%.3f",
 					j == i ? "" : " ", ghs);
 			strcat(data, buf);
+
+			ghs_sum += (float)ghs;
 
 			// Setup speed range data
 			for (sp = 0; sp < BAB_CHIP_SPEEDS - 1; sp++) {
@@ -2160,7 +2201,14 @@ static struct api_data *bab_api_stats(struct cgpu_info *babcgpu)
 		}
 		snprintf(buf, sizeof(buf), "History GHs %d - %d", i, to);
 		root = api_add_string(root, buf, data, true);
+
+		snprintf(buf, sizeof(buf), "Sum History GHs %d - %d", i, to);
+		root = api_add_avg(root, buf, &ghs_sum, true);
+
+		ghs_tot += ghs_sum;
 	}
+
+	root = api_add_avg(root, "Total History GHs", &ghs_tot, true);
 
 	for (sp = 0; sp < BAB_CHIP_SPEEDS; sp++) {
 		if (sp < (BAB_CHIP_SPEEDS - 1))
