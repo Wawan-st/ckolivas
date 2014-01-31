@@ -232,6 +232,10 @@ static inline int fsync (int fd)
 	DRIVER_ADD_COMMAND(modminer)
 
 #define ASIC_PARSE_COMMANDS(DRIVER_ADD_COMMAND) \
+	DRIVER_ADD_COMMAND(hexminera) \
+	DRIVER_ADD_COMMAND(hexminerb) \
+	DRIVER_ADD_COMMAND(hexminerc) \
+	DRIVER_ADD_COMMAND(hexmineru) \
 	DRIVER_ADD_COMMAND(bflsc) \
 	DRIVER_ADD_COMMAND(bitfury) \
 	DRIVER_ADD_COMMAND(hashfast) \
@@ -274,6 +278,15 @@ enum pool_strategy {
 	POOL_LOADBALANCE,
 	POOL_BALANCE,
 };
+#if defined(USE_HEXMINERA) || defined(USE_HEXMINERB) || defined(USE_HEXMINERC) || defined(USE_HEXMINERU)
+
+enum default_hex_miner {
+	D_HEXA,
+	D_HEXB,
+	D_HEXC,
+};
+extern enum default_hex_miner default_hex_miner;
+#endif
 
 #define TOP_STRATEGY (POOL_BALANCE)
 
@@ -428,6 +441,13 @@ struct cgpu_info {
 	int work_array;
 	int queued;
 	int results;
+#endif
+#ifdef USE_HEXMINERU
+	// http://ww1.microchip.com/downloads/en/DeviceDoc/22288A.pdf pg 34
+	uint8_t cfg_spi[0x11];
+	// http://ww1.microchip.com/downloads/en/DeviceDoc/22288A.pdf pg 40
+	uint8_t cfg_gpio[0xf];
+
 #endif
 #ifdef USE_USBUTILS
 	struct cg_usb_info usbinfo;
@@ -967,6 +987,18 @@ extern char *opt_drillbit_options;
 #ifdef USE_BAB
 extern char *opt_bab_options;
 #endif
+#ifdef USE_HEXMINERA
+extern char *opt_hexminera_options;
+#endif
+#ifdef USE_HEXMINERB
+extern char *opt_hexminerb_options;
+#endif
+#ifdef USE_HEXMINERC
+extern char *opt_hexminerc_options;
+#endif
+#ifdef USE_HEXMINERU
+extern char *opt_hexmineru_options;
+#endif
 #ifdef USE_USBUTILS
 extern char *opt_usb_select;
 extern int opt_usbdump;
@@ -1349,6 +1381,9 @@ extern void inc_hw_errors(struct thr_info *thr);
 extern bool test_nonce(struct work *work, uint32_t nonce);
 extern bool test_nonce_diff(struct work *work, uint32_t nonce, double diff);
 extern bool submit_tested_work(struct thr_info *thr, struct work *work);
+#if defined(USE_HEXMINERA) || defined(USE_HEXMINERB) || defined(USE_HEXMINERC) || defined(USE_HEXMINERU)
+extern void submit_tested_work_no_clone(struct thr_info *thr, struct work *work);
+#endif
 extern bool submit_nonce(struct thr_info *thr, struct work *work, uint32_t nonce);
 extern bool submit_noffset_nonce(struct thr_info *thr, struct work *work, uint32_t nonce,
 			  int noffset);

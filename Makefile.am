@@ -102,6 +102,22 @@ if HAS_MINION
 cgminer_SOURCES += driver-minion.c
 endif
 
+if HAS_HEXMINERA
+cgminer_SOURCES += driver-hexminera.c driver-hexminera.h
+endif
+
+if HAS_HEXMINERB
+cgminer_SOURCES += driver-hexminerb.c driver-hexminerb.h
+endif
+
+if HAS_HEXMINERC
+cgminer_SOURCES += driver-hexminerc.c driver-hexminerc.h
+endif
+
+if HAS_HEXMINERU
+cgminer_SOURCES += driver-hexmineru.c driver-hexmineru.h
+endif
+
 if HAS_MODMINER
 cgminer_SOURCES += driver-modminer.c
 bitstreamsdir = $(bindir)/bitstreams

@@ -247,6 +247,50 @@ if test "x$minion" = xyes; then
 fi
 AM_CONDITIONAL([HAS_MINION], [test x$minion = xyes])
 
+hexminera="no"
+
+AC_ARG_ENABLE([hexminera],
+	[AC_HELP_STRING([--enable-hexminera],[Compile support for hexminera (default disabled)])],
+	[hexminera=$enableval]
+	)
+if test "x$hexminera" = xyes; then
+	AC_DEFINE([USE_HEXMINERA], [1], [Defined to 1 if hexminera support is wanted])
+fi
+AM_CONDITIONAL([HAS_HEXMINERA], [test x$hexminera = xyes])
+
+hexminerb="no"
+
+AC_ARG_ENABLE([hexminerb],
+	[AC_HELP_STRING([--enable-hexminerb],[Compile support for hexminerb (default disabled)])],
+	[hexminerb=$enableval]
+	)
+if test "x$hexminerb" = xyes; then
+	AC_DEFINE([USE_HEXMINERB], [1], [Defined to 1 if hexminerb support is wanted])
+fi
+AM_CONDITIONAL([HAS_HEXMINERB], [test x$hexminerb = xyes])
+
+hexmineru="no"
+
+AC_ARG_ENABLE([hexmineru],
+	[AC_HELP_STRING([--enable-hexmineru],[Compile support for hexmineru (default disabled)])],
+	[hexmineru=$enableval]
+	)
+if test "x$hexmineru" = xyes; then
+	AC_DEFINE([USE_HEXMINERU], [1], [Defined to 1 if hexmineru support is wanted])
+fi
+AM_CONDITIONAL([HAS_HEXMINERU], [test x$hexmineru = xyes])
+
+hexminerc="no"
+
+AC_ARG_ENABLE([hexminerc],
+	[AC_HELP_STRING([--enable-hexminerc],[Compile support for hexminerc (default disabled)])],
+	[hexminerc=$enableval]
+	)
+if test "x$hexminerc" = xyes; then
+	AC_DEFINE([USE_HEXMINERC], [1], [Defined to 1 if hexminerc support is wanted])
+fi
+AM_CONDITIONAL([HAS_HEXMINERC], [test x$hexminerc = xyes])
+
 modminer="no"
 
 AC_ARG_ENABLE([modminer],
@@ -282,7 +326,7 @@ else
 	])
 fi
 
-if test x$avalon$bitforce$bitfury$modminer$bflsc$icarus$hashfast$klondike$drillbit != xnonononononononono; then
+if test x$hexminera$hexminerb$hexminerc$hexmineru$avalon$bitforce$bitfury$modminer$bflsc$icarus$hashfast$klondike$drillbit != xnonononononononononononono; then
 	want_usbutils=true
 else
 	want_usbutils=false
@@ -480,6 +524,30 @@ else
 	echo "  BlackArrow.ASICs.....: Disabled"
 fi
 
+if test "x$hexminera" = xyes; then
+	echo "  HEX16A.ASICs.........: Enabled"
+else
+	echo "  HEX16A.ASICs.........: Disabled"
+fi
+
+if test "x$hexminerb" = xyes; then
+	echo "  HEX16B.ASICs.........: Enabled"
+else
+	echo "  HEX16B.ASICs.........: Disabled"
+fi
+
+if test "x$hexminerc" = xyes; then
+	echo "  HEX16C.ASICs.........: Enabled"
+else
+	echo "  HEX16C.ASICs.........: Disabled"
+fi
+
+if test "x$hexmineru" = xyes; then
+	echo "  HEX16U.ASICs.........: Enabled"
+else
+	echo "  HEX16U.ASICs.........: Disabled"
+fi
+
 if test "x$bflsc" = xyes; then
 	echo "  BFL.ASICs............: Enabled"
 else
@@ -534,7 +602,7 @@ else
 	echo "  ModMiner.FPGAs.......: Disabled"
 fi
 
-if test "x$avalon$bab$bflsc$bitforce$bitfury$hashfast$icarus$klondike$knc$modminer$drillbit$minion" = xnononononononononononono; then
+if test "x$hexminera$hexminerb$hexminerc$hexmineru$avalon$bab$bflsc$bitforce$bitfury$hashfast$icarus$klondike$knc$modminer$drillbit$minion" = xnononononononononononononononono; then
 	AC_MSG_ERROR([No mining configured in])
 fi
 
