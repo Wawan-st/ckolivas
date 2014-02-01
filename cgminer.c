@@ -208,7 +208,7 @@ int opt_usbdump = -1;
 bool opt_usb_list_all;
 cgsem_t usb_resource_sem;
 static pthread_t usb_poll_thread;
-static bool usb_polling; 
+static bool usb_polling;
 #endif
 
 char *opt_kernel_path;
@@ -2238,7 +2238,7 @@ static bool curses_active_locked(void)
 
 /* Convert a uint64_t value into a truncated string for displaying with its
  * associated suitable for Mega, Giga etc. Buf array needs to be long enough */
-void suffix_string(uint64_t val, char *buf, size_t bufsiz, int sigdigits)
+static void suffix_string(uint64_t val, char *buf, size_t bufsiz, int sigdigits)
 {
 	const double  dkilo = 1000.0;
 	const uint64_t kilo = 1000ull;
@@ -2319,12 +2319,12 @@ static void get_statline(char *buf, size_t bufsiz, struct cgpu_info *cgpu)
 	dev_runtime = cgpu_runtime(cgpu);
 
 	wu = cgpu->diff1 / dev_runtime * 60.0;
-	
+
 	dh64 = (double)cgpu->total_mhashes / dev_runtime * 1000000ull;
 	dr64 = (double)cgpu->rolling * 1000000ull;
 	suffix_string(dh64, displayed_hashes, sizeof(displayed_hashes), 4);
 	suffix_string(dr64, displayed_rolling, sizeof(displayed_rolling), 4);
-	
+
 	snprintf(buf, bufsiz, "%s%d ", cgpu->drv->name, cgpu->device_id);
 	cgpu->drv->get_statline_before(buf, bufsiz, cgpu);
 	tailsprintf(buf, bufsiz, "(%ds):%s (avg):%sh/s | A:%.0f R:%.0f HW:%d WU:%.1f/m",
@@ -2406,7 +2406,7 @@ static int dev_width;
 
 static void curses_print_devstatus(struct cgpu_info *cgpu, int count)
 {
-	static int dawidth = 1, drwidth = 1, hwwidth = 1,hwwidthp = 1, wuwidth = 1;
+	static int dawidth = 1, drwidth = 1, hwwidth = 1, hwwidthp = 1, wuwidth = 1;
 	char logline[256];
 	char displayed_hashes[16], displayed_rolling[16];
 	uint64_t dh64, dr64;
@@ -6306,7 +6306,6 @@ void submit_tested_work_no_clone(struct thr_info *thr, struct work *work)
 }
 #endif
 
-
 /* Returns true if nonce for work was a valid share */
 bool submit_nonce(struct thr_info *thr, struct work *work, uint32_t nonce)
 {
@@ -6338,7 +6337,6 @@ bool submit_noffset_nonce(struct thr_info *thr, struct work *work_in, uint32_t n
 	ret = true;
 	update_work_stats(thr, work);
 	if (!fulltest(work->hash, work->target)) {
-		//applog(LOG_INFO, "Share above target");
 		applog(LOG_INFO, "%s%d: Share above target",
 			thr->cgpu->drv->name, thr->cgpu->device_id);
 		
@@ -6397,10 +6395,9 @@ static void hash_sole_work(struct thr_info *mythr)
 	while (likely(!cgpu->shutdown)) {
 		struct work *work = get_work(mythr, thr_id);
 		int64_t hashes;
-		
+
 		mythr->work_restart = false;
 		cgpu->new_work = true;
-		
 
 		cgtime(&tv_workstart);
 		work->nonce = 0;
@@ -6725,7 +6722,6 @@ void flush_queue(struct cgpu_info *cgpu)
 		free_work(work);
 		applog(LOG_DEBUG, "Discarded queued work item");
 	}
-	
 }
 
 /* This version of hash work is for devices that are fast enough to always
@@ -6743,18 +6739,18 @@ void hash_queued_work(struct thr_info *mythr)
 	while (likely(!cgpu->shutdown)) {
 		struct timeval diff;
 		int64_t hashes;
-    
+
 		mythr->work_update = false;
-  	
+
 		fill_queue(mythr, cgpu, drv, thr_id);
 
 		hashes = drv->scanwork(mythr);
 
 		/* Reset the bool here in case the driver looks for it
 		 * synchronously in the scanwork loop. */
-		
+
 		mythr->work_restart = false;
-  	
+
 		if (unlikely(hashes == -1 )) {
 			applog(LOG_ERR, "%s %d failure, disabling!", drv->name, cgpu->device_id);
 			cgpu->deven = DEV_DISABLED;
@@ -6776,7 +6772,7 @@ void hash_queued_work(struct thr_info *mythr)
 		if (unlikely(mythr->pause || cgpu->deven != DEV_ENABLED))
 			mt_disable(mythr, thr_id, drv);
 
- 		if (mythr->work_update)
+		if (mythr->work_update)
 			drv->update_work(cgpu);
 	}
 	cgpu->deven = DEV_DISABLED;
@@ -6797,16 +6793,16 @@ void hash_driver_work(struct thr_info *mythr)
 	while (likely(!cgpu->shutdown)) {
 		struct timeval diff;
 		int64_t hashes;
-   
+
 		mythr->work_update = false;
-   
+
 		hashes = drv->scanwork(mythr);
 
 		/* Reset the bool here in case the driver looks for it
 		 * synchronously in the scanwork loop. */
-		
+
 		mythr->work_restart = false;
-		
+
 		if (unlikely(hashes == -1 )) {
 			applog(LOG_ERR, "%s %d failure, disabling!", drv->name, cgpu->device_id);
 			cgpu->deven = DEV_DISABLED;
@@ -6828,7 +6824,7 @@ void hash_driver_work(struct thr_info *mythr)
 		if (unlikely(mythr->pause || cgpu->deven != DEV_ENABLED))
 			mt_disable(mythr, thr_id, drv);
 
-    if (mythr->work_update)
+		if (mythr->work_update)
 			drv->update_work(cgpu);
 	}
 	cgpu->deven = DEV_DISABLED;
