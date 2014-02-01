@@ -452,7 +452,6 @@ static struct usb_find_devices find_dev[] = {
 		.latency = LATENCY_UNUSED,
 		INTINFO(mmq_ints) },
 #endif
-
 #ifdef USE_AVALON
 	{
 		.drv = DRIVER_avalon,
@@ -962,6 +961,7 @@ static bool setgetdes(ssize_t count, libusb_device *dev, struct libusb_device_ha
 {
 	char tmp[512];
 	int err;
+
 	err = libusb_set_configuration(handle, cd);
 	if (err) {
 		snprintf(tmp, sizeof(tmp), EOL "  ** dev %d: Failed to set config descriptor to %d, err %d",
@@ -1045,8 +1045,7 @@ static void usb_full(ssize_t *count, libusb_device *dev, char **buf, size_t *off
 	}
 	append(buf, tmp, off, len);
 
-	err = libusb_open(dev, &handle);
-	
+	err = libusb_open(dev, &handle);	
 	if (err) {
 		snprintf(tmp, sizeof(tmp), EOL "  ** dev %d: Failed to open, err %d", (int)(*count), err);
 		append(buf, tmp, off, len);
@@ -1594,7 +1593,6 @@ static void release_cgpu(struct cgpu_info *cgpu)
 	}
 
 	_usb_uninit(cgpu);
-
 	cgminer_usb_unlock_bd(cgpu->drv, cgpu->usbinfo.bus_number, cgpu->usbinfo.device_address);
 }
 
@@ -1810,7 +1808,6 @@ static int _usb_init(struct cgpu_info *cgpu, struct libusb_device *dev, struct u
 							 cgusb->descriptor->iProduct,
 							 prod, STRBUFLEN);
 		if (err < 0) {
-		
 			#if defined(USE_HEXMINERA) || defined(USE_HEXMINERB) || defined(USE_HEXMINERC)
 				bzero(prod,STRBUFLEN);
 			#if defined(USE_HEXMINERA)
@@ -1825,22 +1822,21 @@ static int _usb_init(struct cgpu_info *cgpu, struct libusb_device *dev, struct u
 			} 
 			#endif
 			
-		  #if defined(USE_HEXMINERC)
+			#if defined(USE_HEXMINERC)
 			if(found->ident == IDENT_HEXC && default_hex_miner == D_HEXC) {
 				strcpy(prod, "HEX16C-Avalon2 ASIC Miner");
 			} 
 			#endif
 
 			#else
-			
+
 			applog(LOG_DEBUG,
 				"USB init, failed to get iProduct, err %d %s",
 				err, devstr);
 			goto cldame;
 			#endif
-			
 		}
-		
+
 		if (strcmp((char *)prod, found->iProduct)) {
 			applog(LOG_DEBUG, "USB init, iProduct mismatch %s",
 			       devstr);
@@ -1968,25 +1964,26 @@ static int _usb_init(struct cgpu_info *cgpu, struct libusb_device *dev, struct u
 	err = libusb_get_string_descriptor_ascii(cgusb->handle,
 				cgusb->descriptor->iProduct, strbuf, STRBUFLEN);
 	#if defined(USE_HEXMINERA) || defined(USE_HEXMINERB) || defined(USE_HEXMINERC)
-	  	if (err > 0)
+  	if (err > 0)
 		cgusb->prod_string = strdup((char *)strbuf);
 	else {
-		#if defined(USE_HEXMINERA)
+	#if defined(USE_HEXMINERA)
 		if(default_hex_miner == D_HEXA) cgusb->prod_string = strdup((char *)"HEX16A-Avalon1 ASIC Miner");
-		#endif
-		#if defined(USE_HEXMINERB)
+	#endif
+	#if defined(USE_HEXMINERB)
 		if(default_hex_miner == D_HEXB) cgusb->prod_string = strdup((char *)"HEX16B-Bitfury ASIC Miner");
-		#endif
-		#if defined(USE_HEXMINERC)
+	#endif
+	#if defined(USE_HEXMINERC)
 		if(default_hex_miner == D_HEXC) cgusb->prod_string = strdup((char *)"HEX16C-Avalon2 ASIC Miner");
-		#endif
+	#endif
 	}
 	#else
 	if (err > 0)
 		cgusb->prod_string = strdup((char *)strbuf);
 	else
 		cgusb->prod_string = (char *)BLANK;
-  #endif
+	#endif
+
 	err = libusb_get_string_descriptor_ascii(cgusb->handle,
 				cgusb->descriptor->iManufacturer, strbuf, STRBUFLEN);
 	if (err > 0)
