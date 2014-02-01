@@ -7455,12 +7455,12 @@ void print_summary(void)
 static void clean_up(bool restarting)
 {
 #ifdef USE_USBUTILS
- usb_polling = false;
-#if defined(USE_HEXMINERA) || defined(USE_HEXMINERB) || defined(USE_HEXMINERC) || defined(USE_HEXMINERU)
-#else
- pthread_join(usb_poll_thread, NULL);      
-#endif
- libusb_exit(NULL);
+	usb_polling = false;
+	#if defined(USE_HEXMINERA) || defined(USE_HEXMINERB) || defined(USE_HEXMINERC) || defined(USE_HEXMINERU)
+	#else
+	pthread_join(usb_poll_thread, NULL);      
+	#endif
+	libusb_exit(NULL);
 #endif
 
 	cgtime(&total_tv_end);
@@ -8185,7 +8185,6 @@ static void initialise_usb(void) {
 	usb_polling = true;
 	#if defined(USE_HEXMINERA) || defined(USE_HEXMINERB)  || defined(USE_HEXMINERC) || defined(USE_HEXMINERU)
 	#else
-	
 	pthread_create(&usb_poll_thread, NULL, libusb_poll_thread, NULL);
 	#endif
 }
