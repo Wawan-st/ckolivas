@@ -4604,8 +4604,10 @@ void write_config(FILE *fcfg)
         if (opt_drillbit_options)
                 fprintf(fcfg, ",\n\"drillbit-options\" : \"%s\"", json_escape(opt_drillbit_options));
 #endif
+#ifdef USE_BAB
 	if (opt_bab_options)
 		fprintf(fcfg, ",\n\"bab-options\" : \"%s\"", json_escape(opt_bab_options));
+#endif
 #ifdef USE_USBUTILS
 	if (opt_usb_select)
 		fprintf(fcfg, ",\n\"usb\" : \"%s\"", json_escape(opt_usb_select));
