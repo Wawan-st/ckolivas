@@ -5992,7 +5992,6 @@ static struct work *hash_pop(void)
 
 	/* Signal hash_pop again in case there are mutliple hash_pop waiters */
 	pthread_cond_signal(&getq->cond);
-	//pthread_cond_broadcast(&getq->cond);
 	mutex_unlock(stgd_lock);
 
 	return work;
@@ -6286,7 +6285,6 @@ bool submit_tested_work(struct thr_info *thr, struct work *work)
 	submit_work_async(work_out);
 	return true;
 }
-
 
 #if defined(USE_HEXMINERA) || defined(USE_HEXMINERB) || defined(USE_HEXMINERC) || defined(USE_HEXMINERU)
 void submit_tested_work_no_clone(struct thr_info *thr, struct work *work)
@@ -6748,7 +6746,6 @@ void hash_queued_work(struct thr_info *mythr)
 
 		/* Reset the bool here in case the driver looks for it
 		 * synchronously in the scanwork loop. */
-
 		mythr->work_restart = false;
 
 		if (unlikely(hashes == -1 )) {
@@ -6800,7 +6797,6 @@ void hash_driver_work(struct thr_info *mythr)
 
 		/* Reset the bool here in case the driver looks for it
 		 * synchronously in the scanwork loop. */
-
 		mythr->work_restart = false;
 
 		if (unlikely(hashes == -1 )) {
