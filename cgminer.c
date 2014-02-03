@@ -8213,8 +8213,6 @@ int main(int argc, char *argv[])
 
 	applog(LOG_NOTICE, "Probing for an alive pool");
 	do {
-		int slept = 0;
-
 		/* Look for at least one active pool before starting */
 		probe_pools();
 
