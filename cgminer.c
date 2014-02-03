@@ -8217,10 +8217,6 @@ int main(int argc, char *argv[])
 
 		/* Look for at least one active pool before starting */
 		probe_pools();
-		do {
-			sleep(1);
-			slept++;
-		} while (!pools_active && slept < 60);
 
 		if (!pools_active) {
 			applog(LOG_ERR, "No servers were found that could be used to get work from.");
@@ -8235,8 +8231,8 @@ int main(int argc, char *argv[])
 			}
 #ifdef HAVE_CURSES
 			if (use_curses) {
-				halfdelay(600);
-				applog(LOG_ERR, "Press any key to exit, or cgminer will try again in 60s.");
+				halfdelay(200);
+				applog(LOG_ERR, "Press any key to exit, or cgminer will try again in 20s.");
 				if (getch() != ERR)
 					quit(0, "No servers could be used! Exiting.");
 				cbreak();
