@@ -76,11 +76,27 @@ char *curly = ":D";
 #include "driver-bitfury.h"
 #endif
 
+#ifdef USE_HEXMINERA
+#include "driver-hexminera.h"
+#endif
+
+#ifdef USE_HEXMINERB
+#include "driver-hexminerb.h"
+#endif
+
+#ifdef USE_HEXMINERC
+#include "driver-hexminerc.h"
+#endif
+
+#ifdef USE_HEXMINERU
+#include "driver-hexmineru.h"
+#endif
+
 #ifdef USE_HASHFAST
 #include "driver-hashfast.h"
 #endif
 
-#if defined(USE_BITFORCE) || defined(USE_ICARUS) || defined(USE_AVALON) || defined(USE_MODMINER)
+#if defined(USE_BITFORCE) || defined(USE_ICARUS) || defined(USE_AVALON) || defined(USE_MODMINER) || defined(USE_HEXMINERA) || defined(USE_HEXMINERB) || defined(USE_HEXMINERC) || defined(USE_HEXMINERU)
 #	define USE_FPGA
 #endif
 
@@ -171,7 +187,21 @@ char *opt_klondike_options = NULL;
 #ifdef USE_DRILLBIT
 char *opt_drillbit_options = NULL;
 #endif
+#ifdef USE_BAB
 char *opt_bab_options = NULL;
+#endif
+#ifdef USE_HEXMINERA
+char *opt_hexminera_options = NULL;
+#endif
+#ifdef USE_HEXMINERB
+char *opt_hexminerb_options = NULL;
+#endif
+#ifdef USE_HEXMINERC
+char *opt_hexminerc_options = NULL;
+#endif
+#ifdef USE_HEXMINERU
+char *opt_hexmineru_options = NULL;
+#endif
 #ifdef USE_USBUTILS
 char *opt_usb_select = NULL;
 int opt_usbdump = -1;
@@ -256,6 +286,11 @@ static struct pool *currentpool = NULL;
 
 int total_pools, enabled_pools;
 enum pool_strategy pool_strategy = POOL_FAILOVER;
+
+#if defined(USE_HEXMINERA) || defined(USE_HEXMINERB) || defined(USE_HEXMINERC) || defined(USE_HEXMINERU)
+enum default_hex_miner default_hex_miner = D_HEXA;
+#endif
+
 int opt_rotate_period;
 static int total_urls, total_users, total_passes, total_userpasses;
 
@@ -640,7 +675,7 @@ static char *set_int_0_to_10(const char *arg, int *i)
 	return set_int_range(arg, i, 0, 10);
 }
 
-#ifdef USE_AVALON
+#if defined(USE_AVALON) || defined(USE_HEXMINERA) || defined(USE_HEXMINERB) || defined(USE_HEXMINERC) || defined(USE_HEXMINERU)
 static char *set_int_0_to_100(const char *arg, int *i)
 {
 	return set_int_range(arg, i, 0, 100);
@@ -722,6 +757,32 @@ static char *set_devices(char *arg)
 
 	return NULL;
 }
+
+
+#ifdef USE_HEXMINERA
+static char *set_default_to_a(enum default_hex_miner *which)
+{
+	*which = D_HEXA;
+	return NULL;
+}
+#endif
+
+
+#ifdef USE_HEXMINERB
+static char *set_default_to_b(enum default_hex_miner *which)
+{
+	*which = D_HEXB;
+	return NULL;
+}
+#endif
+
+#ifdef USE_HEXMINERC
+static char *set_default_to_c(enum default_hex_miner *which)
+{
+	*which = D_HEXC;
+	return NULL;
+}
+#endif
 
 static char *set_balance(enum pool_strategy *strategy)
 {
@@ -1069,10 +1130,46 @@ static char *set_drillbit_options(const char *arg)
 }
 #endif
 
+#ifdef USE_HEXMINERA
+static char *set_hexminera_options(const char *arg)
+{
+	opt_set_charp(arg, &opt_hexminera_options);
+
+	return NULL;
+}
+#endif
+
 #ifdef USE_BAB
 static char *set_bab_options(const char *arg)
 {
 	opt_set_charp(arg, &opt_bab_options);
+
+	return NULL;
+}
+#endif
+
+#ifdef USE_HEXMINERB
+static char *set_hexminerb_options(const char *arg)
+{
+	opt_set_charp(arg, &opt_hexminerb_options);
+
+	return NULL;
+}
+#endif
+
+#ifdef USE_HEXMINERC
+static char *set_hexminerc_options(const char *arg)
+{
+	opt_set_charp(arg, &opt_hexminerc_options);
+
+	return NULL;
+}
+#endif
+
+#ifdef USE_HEXMINERU
+static char *set_hexmineru_options(const char *arg)
+{
+	opt_set_charp(arg, &opt_hexmineru_options);
 
 	return NULL;
 }
@@ -1258,6 +1355,44 @@ static struct opt_table opt_config_table[] = {
 	OPT_WITH_ARG("--bab-options",
 		     set_bab_options, NULL, NULL,
 		     "Set bab options max:def:min:up:down:hz:delay:trf"),
+#endif
+#ifdef USE_HEXMINERA
+	OPT_WITH_ARG("--hexminera-options",
+		     set_hexminera_options, NULL, NULL,
+		     "Set HEXMinerA options asic_count:freq"),
+	OPT_WITH_ARG("--hexminera-voltage",
+		     libhexa_set_config_voltage, NULL, NULL,
+		     "Set HEXMinerA core voltage, in millivolts"),
+	OPT_WITHOUT_ARG("--set_default_to_a",
+		     set_default_to_a, &default_hex_miner,
+		     "Handle USB detect errors as hexA"),
+#endif
+#ifdef USE_HEXMINERB
+	OPT_WITH_ARG("--hexminerb-options",
+		     set_hexminerb_options, NULL, NULL,
+		     "Set HEXMinerB options asic_count:freq"),
+	OPT_WITH_ARG("--hexminerb-voltage",
+		     libhexb_set_config_voltage, NULL, NULL,
+		     "Set HEXMinerB core voltage, in millivolts"),
+  OPT_WITHOUT_ARG("--set_default_to_b",
+		     set_default_to_b, &default_hex_miner,
+		     "Handle USB detect errors as hexB"),
+#endif
+#ifdef USE_HEXMINERC
+	OPT_WITH_ARG("--hexminerc-options",
+		     set_hexminerc_options, NULL, NULL,
+		     "Set HEXMinerC options asic_count:freq"),
+	OPT_WITH_ARG("--hexminerc-voltage",
+		     libhexc_set_config_voltage, NULL, NULL,
+		     "Set HEXMinerC core voltage, in millivolts"),
+  OPT_WITHOUT_ARG("--set_default_to_c",
+		     set_default_to_c, &default_hex_miner,
+		     "Handle USB detect errors as hexC"),
+#endif
+#ifdef USE_HEXMINERU
+	OPT_WITH_ARG("--hexmineru-frequency",
+		     set_hexmineru_options, NULL, NULL,
+		     "Set HEXMinerU frequency"),
 #endif
 	OPT_WITHOUT_ARG("--load-balance",
 		     set_loadbalance, &pool_strategy,
@@ -1568,6 +1703,18 @@ static char *opt_verusage_and_exit(const char *extra)
 #endif
 #ifdef USE_MINION
 		"minion "
+#endif
+#ifdef USE_HEXMINERA
+		"hexminera "
+#endif
+#ifdef USE_HEXMINERB
+		"hexminerb "
+#endif
+#ifdef USE_HEXMINERC
+		"hexminerc "
+#endif
+#ifdef USE_HEXMINERU
+		"hexmineru "
 #endif
 #ifdef USE_MODMINER
 		"modminer "
@@ -2098,7 +2245,7 @@ static bool curses_active_locked(void)
 
 /* Convert a uint64_t value into a truncated string for displaying with its
  * associated suitable for Mega, Giga etc. Buf array needs to be long enough */
-static void suffix_string(uint64_t val, char *buf, size_t bufsiz, int sigdigits)
+void suffix_string(uint64_t val, char *buf, size_t bufsiz, int sigdigits)
 {
 	const double  dkilo = 1000.0;
 	const uint64_t kilo = 1000ull;
@@ -2266,7 +2413,7 @@ static int dev_width;
 
 static void curses_print_devstatus(struct cgpu_info *cgpu, int count)
 {
-	static int dawidth = 1, drwidth = 1, hwwidth = 1, wuwidth = 1;
+	static int dawidth = 1, drwidth = 1, hwwidth = 1, hwwidthp = 1, wuwidth = 1;
 	char logline[256];
 	char displayed_hashes[16], displayed_rolling[16];
 	uint64_t dh64, dr64;
@@ -2294,7 +2441,10 @@ static void curses_print_devstatus(struct cgpu_info *cgpu, int count)
 
 	cgpu->utility = cgpu->accepted / dev_runtime * 60;
 	wu = cgpu->diff1 / dev_runtime * 60;
-
+#if defined(USE_HEXMINERA) || defined(USE_HEXMINERB) || defined(USE_HEXMINERC) || defined(USE_HEXMINERU)
+	double hwp = (cgpu->hw_errors + cgpu->diff1) ?
+		     (double)100 *(double)(cgpu->hw_errors) / (double)(cgpu->hw_errors + cgpu->diff1) : 0;
+#endif
 	wmove(statuswin,devcursor + count, 0);
 	cg_wprintw(statuswin, " %s %*d: ", cgpu->drv->name, dev_width, cgpu->device_id);
 	logline[0] = '\0';
@@ -2324,14 +2474,35 @@ static void curses_print_devstatus(struct cgpu_info *cgpu, int count)
 	adj_fwidth(cgpu->diff_accepted, &dawidth);
 	adj_fwidth(cgpu->diff_rejected, &drwidth);
 	adj_width(cgpu->hw_errors, &hwwidth);
+#if defined(USE_HEXMINERA) || defined(USE_HEXMINERB) || defined(USE_HEXMINERC) || defined(USE_HEXMINERU)
+	if(usb_ident(cgpu) == IDENT_HEXA || usb_ident(cgpu) == IDENT_HEXB || usb_ident(cgpu) == IDENT_HEXC || usb_ident(cgpu) == IDENT_HEXU) adj_width(hwp, &hwwidthp);
+#endif
 	adj_width(wu, &wuwidth);
-
+#if defined(USE_HEXMINERA) || defined(USE_HEXMINERB) || defined(USE_HEXMINERC) || defined(USE_HEXMINERU)
+	if(usb_ident(cgpu) == IDENT_HEXA || usb_ident(cgpu) == IDENT_HEXB || usb_ident(cgpu) == IDENT_HEXC || usb_ident(cgpu) == IDENT_HEXU) {
+		cg_wprintw(statuswin, "/%6sh/s | A:%*.0f R:%*.0f HW:%*d/%*.2f%% WU:%*.1f/m",
+				displayed_hashes,
+				dawidth, cgpu->diff_accepted,
+				drwidth, cgpu->diff_rejected,
+				hwwidth, cgpu->hw_errors,
+				hwwidthp +1, hwp,
+				wuwidth + 2, wu);
+	} else {
+		cg_wprintw(statuswin, "/%6sh/s | A:%*.0f R:%*.0f HW:%*d WU:%*.1f/m",
+			displayed_hashes,
+			dawidth, cgpu->diff_accepted,
+			drwidth, cgpu->diff_rejected,
+			hwwidth, cgpu->hw_errors,
+			wuwidth + 2, wu);
+	}
+#else
 	cg_wprintw(statuswin, "/%6sh/s | A:%*.0f R:%*.0f HW:%*d WU:%*.1f/m",
 			displayed_hashes,
 			dawidth, cgpu->diff_accepted,
 			drwidth, cgpu->diff_rejected,
 			hwwidth, cgpu->hw_errors,
 			wuwidth + 2, wu);
+#endif
 
 	logline[0] = '\0';
 	cgpu->drv->get_statline(logline, sizeof(logline), cgpu);
@@ -3953,7 +4124,10 @@ static void *restart_thread(void __maybe_unused *arg)
 	/* Cancels any cancellable usb transfers. Flagged as such it means they
 	 * are usualy waiting on a read result and it's safe to abort the read
 	 * early. */
+	#if defined(USE_HEXMINERA) || defined(USE_HEXMINERB) || defined(USE_HEXMINERC) || defined(USE_HEXMINERU)
+	#else
 	cancel_usb_transfers();
+	#endif
 #endif
 	return NULL;
 }
@@ -4437,8 +4611,10 @@ void write_config(FILE *fcfg)
         if (opt_drillbit_options)
                 fprintf(fcfg, ",\n\"drillbit-options\" : \"%s\"", json_escape(opt_drillbit_options));
 #endif
+#ifdef USE_BAB
 	if (opt_bab_options)
 		fprintf(fcfg, ",\n\"bab-options\" : \"%s\"", json_escape(opt_bab_options));
+#endif
 #ifdef USE_USBUTILS
 	if (opt_usb_select)
 		fprintf(fcfg, ",\n\"usb\" : \"%s\"", json_escape(opt_usb_select));
@@ -6124,13 +6300,32 @@ bool submit_tested_work(struct thr_info *thr, struct work *work)
 	update_work_stats(thr, work);
 
 	if (!fulltest(work->hash, work->target)) {
-		applog(LOG_INFO, "Share above target");
+		applog(LOG_INFO, "%s%d: Share above target",
+			thr->cgpu->drv->name, thr->cgpu->device_id);
 		return false;
 	}
 	work_out = copy_work(work);
 	submit_work_async(work_out);
 	return true;
 }
+
+#if defined(USE_HEXMINERA) || defined(USE_HEXMINERB) || defined(USE_HEXMINERC) || defined(USE_HEXMINERU)
+void submit_tested_work_no_clone(struct thr_info *thr, struct work *work)
+{
+	
+	update_work_stats(thr, work);
+
+	if (!fulltest(work->hash, work->target)) {
+		//applog(LOG_INFO, "Share above target");
+		applog(LOG_INFO, "%s%d: Share above target",
+			thr->cgpu->drv->name, thr->cgpu->device_id);
+			free_work(work);
+		return;
+	}
+	
+	submit_work_async(work);
+}
+#endif
 
 /* Returns true if nonce for work was a valid share */
 bool submit_nonce(struct thr_info *thr, struct work *work, uint32_t nonce)
@@ -6163,7 +6358,9 @@ bool submit_noffset_nonce(struct thr_info *thr, struct work *work_in, uint32_t n
 	ret = true;
 	update_work_stats(thr, work);
 	if (!fulltest(work->hash, work->target)) {
-		applog(LOG_INFO, "Share above target");
+		applog(LOG_INFO, "%s%d: Share above target",
+			thr->cgpu->drv->name, thr->cgpu->device_id);
+		
 		goto  out;
 	}
 	submit_work_async(work);
@@ -7282,8 +7479,11 @@ static void clean_up(bool restarting)
 {
 #ifdef USE_USBUTILS
 	usb_polling = false;
-	pthread_join(usb_poll_thread, NULL);
-        libusb_exit(NULL);
+	#if defined(USE_HEXMINERA) || defined(USE_HEXMINERB) || defined(USE_HEXMINERC) || defined(USE_HEXMINERU)
+	#else
+	pthread_join(usb_poll_thread, NULL);      
+	#endif
+	libusb_exit(NULL);
 #endif
 
 	cgtime(&total_tv_end);
@@ -7855,6 +8055,126 @@ static void probe_pools(void)
 #define DRIVER_DRV_DETECT_ALL(X) X##_drv.drv_detect(false);
 
 #ifdef USE_USBUTILS
+//UGLY but if hotplug is ok we are disabling it. Something is happening here and we do not need it.
+//This breaks badly cgminer code (MIPS - TPLINK) and other device support but whoever wants please do enable it.
+//What happens is that for some reason pooling touches usbdev even though reads/writes are performed under lock like in usb-utils
+// same function actualy
+
+/*
+
+(gdb) c
+Continuing.
+[New Thread 887]
+
+Program received signal SIGSEGV, Segmentation fault.
+[Switching to Thread 887]
+usbi_hotplug_match (dev=0x3, event=(unknown: 0)) at hotplug.c:166
+166             struct libusb_context *ctx = dev->ctx;
+(gdb) bt full
+#0  usbi_hotplug_match (dev=0x3, event=(unknown: 0)) at hotplug.c:166
+        hotplug_cb = <optimized out>
+        next = <optimized out>
+        ctx = <optimized out>
+#1  0x0043f43c in handle_events (ctx=0x468258, tv=0x767f76d8) at io.c:1954
+        message = {event = (unknown: 0), device = 0x3}
+        ret = <optimized out>
+        r = 2
+        ipollfd = 0x4682e8
+        nfds = 7
+        fds = 0x70fce8
+        i = <optimized out>
+        timeout_ms = <optimized out>
+        __FUNCTION__ = "handle_events"
+#2  0x0043fcbc in libusb_handle_events_timeout_completed (ctx=0x468258, tv=<optimized out>, completed=0x767f7738) at io.c:2070
+        r = 0
+        poll_timeout = {tv_sec = 60, tv_usec = 0}
+#3  0x0043fd88 in libusb_handle_events_completed (ctx=<optimized out>, completed=<optimized out>) at io.c:2169
+        tv = {tv_sec = 60, tv_usec = 0}
+#4  0x00440468 in do_sync_bulk_transfer (dev_handle=0x47d390, endpoint=<optimized out>, buffer=<optimized out>, length=1, transferred=0x767f77b0,
+    timeout=0, type=2 '\002') at sync.c:182
+        transfer = 0x723f4c
+        completed = 0
+        r = 0
+        __FUNCTION__ = "do_sync_bulk_transfer"
+#5  0x00440810 in libusb_bulk_transfer (dev_handle=<optimized out>, endpoint=<optimized out>, data=<optimized out>, length=<optimized out>,
+    transferred=0x767f77b0, timeout=0) at sync.c:270
+No locals.
+#6  0x00434bd8 in libhexa_readHashData (hash_write_pos=<synthetic pointer>, hash=0x767f77d4 "S\fR", hexminera=0x479098, timeout=<optimized out>,
+    read_once=<optimized out>) at libhexa.c:354
+        info = <optimized out>
+        read = 0
+        err = 0
+        timeout = 0
+        usbdev = 0x47b338
+        read_once = true
+        total = <optimized out>
+#7  hexminera_get_results (userdata=0x479098) at driver-hexminera.c:462
+        ts_start = {tv_sec = 11437, tv_nsec = 862254175}
+        hexminera = 0x479098
+        info = 0x47d410
+        readbuf = "S\fR\000\060\025\307A\314\336\000\023\a\000\000\000\000\021", '\000' <repeats 11 times>, "\323S\002R\224d\025\307AÌS\004R\234dC\000O\000O\000\000\000\212S\001W\000@.\000\031S\001R\004\060\336\000\270S\001R\004\060\336\000\270S\001R\000h\024\a)S\fR\000\060z\257\255\351\337\000\022\a\000\000\000\000\021", '\000' <repeats 11 times>, "\251S\002R\224dz\257\255\351^S\004R\234dC\000O\000O\000\000\000\212S\001W\000@.\000\031S\001R\004\060\337\000\271S\001R\004\060\337\000\271S\001R\000h\024\a)S\004R\234dC\000O\000O\000\000\000\212S\001W\000@.\000\031S\001R\004\060\337\000"...
+        wr = 0x49f2a8
+        array_nonce_cache = 0x4ac7c8
+        thr = 0x472840
+        i = <optimized out>
+        lastchippos = 10
+        nonce = <optimized out>
+        found = <optimized out>
+        usb_r_reset = 0
+        threadname = "hexa_recv/1", '\000' <repeats 12 times>
+        ret_r = <optimized out>
+        hash_read_pos = 256
+        hash_write_pos = 258
+        need_work_reset = 0
+        __func__ = "hexminera_get_results"
+---Type <return> to continue, or q <return> to quit---
+#8  0x77eefc94 in start_thread (arg=0x767f8530) at libpthread/nptl/pthread_create.c:297
+        pd = 0x767f8530
+        unwind_buf = {cancel_jmp_buf = {{jmp_buf = {{__pc = 0x77eefbb8 <start_thread+184>, __sp = 0x767f8020, __regs = {1988068656, 2012246048, 2012174776,
+                    1988067584, 0, 0, 4096, 2097152}, __fp = 0x767f8020, __gp = 0x77ec33b0, __fpc_csr = 0, __fpregs = {0, 0, 0, 0, 0, 0}}},
+              mask_was_saved = 0}}, priv = {pad = {0x0, 0x0, 0x0, 0x0}, data = {prev = 0x0, cleanup = 0x0, canceltype = 0}}}
+        not_first_call = 0
+        robust = <optimized out>
+        pagesize_m1 = <optimized out>
+        sp = 0x767f8020 ""
+        freesize = <optimized out>
+#9  0x77ee80e0 in __thread_start () at ./libc/sysdeps/linux/mips/clone.S:146
+No locals.
+Backtrace stopped: frame did not save the PC
+
+
+Program received signal SIG32, Real-time event 32.
+[Switching to Thread 978]
+clock_nanosleep (clock_id=1, flags=1, req=0x751f7fa8, rem=0x0) at librt/clock_nanosleep.c:51
+51            LIBC_CANCEL_RESET (oldstate);
+(gdb) bt full
+#0  clock_nanosleep (clock_id=1, flags=1, req=0x751f7fa8, rem=0x0) at librt/clock_nanosleep.c:51
+        oldstate = 2
+        err = <optimized out>
+        r = <optimized out>
+#1  0x0041e238 in nanosleep_abstime (ts_end=0x751f7fa8) at util.c:1001
+        ret = 514
+#2  0x00420aa0 in cgsleep_ms_r (ts_start=0x751f7fd0, ms=<optimized out>) at util.c:1014
+        ts_end = {tv_sec = 11737, tv_nsec = 388217180}
+#3  0x00420b10 in cgsleep_ms (ms=5000) at util.c:1155
+        ts_start = {tv_sec = 11732, tv_nsec = 388217180}
+#4  0x0041cb94 in hotplug_thread (userdata=<optimized out>) at cgminer.c:7979
+No locals.
+#5  0x77eefc94 in start_thread (arg=0x751f8530) at libpthread/nptl/pthread_create.c:297
+        pd = 0x751f8530
+        unwind_buf = {cancel_jmp_buf = {{jmp_buf = {{__pc = 0x77eefbb8 <start_thread+184>, __sp = 0x751f8020, __regs = {1964999984, 2012246048, 2012174776,
+                    1964998912, 0, 0, 4096, 2097152}, __fp = 0x751f8020, __gp = 0x77ec33b0, __fpc_csr = 0, __fpregs = {0, 0, 0, 0, 0, 0}}},
+              mask_was_saved = 0}}, priv = {pad = {0x0, 0x0, 0x0, 0x0}, data = {prev = 0x0, cleanup = 0x0, canceltype = 0}}}
+        not_first_call = 0
+        robust = <optimized out>
+        pagesize_m1 = <optimized out>
+        sp = 0x751f8020 ""
+        freesize = <optimized out>
+#6  0x77ee80e0 in __thread_start () at ./libc/sysdeps/linux/mips/clone.S:146
+No locals.
+Backtrace stopped: frame did not save the PC
+*/
+
 static void *libusb_poll_thread(void __maybe_unused *arg)
 {
 	struct timeval tv_end = {1, 0};
@@ -7886,7 +8206,10 @@ static void initialise_usb(void) {
 	}
 	initialise_usblocks();
 	usb_polling = true;
+	#if defined(USE_HEXMINERA) || defined(USE_HEXMINERB)  || defined(USE_HEXMINERC) || defined(USE_HEXMINERU)
+	#else
 	pthread_create(&usb_poll_thread, NULL, libusb_poll_thread, NULL);
+	#endif
 }
 #else
 #define initialise_usb() {}

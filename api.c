@@ -26,7 +26,7 @@
 #include "util.h"
 #include "klist.h"
 
-#if defined(USE_BFLSC) || defined(USE_AVALON) || defined(USE_HASHFAST) || defined(USE_BITFURY) || defined(USE_KLONDIKE) || defined(USE_KNC) || defined(USE_BAB) || defined(USE_DRILLBIT) || defined(USE_MINION)
+#if defined(USE_HEXMINERA) || defined(USE_HEXMINERB) || defined(USE_HEXMINERC) || defined(USE_HEXMINERU) || defined(USE_BFLSC) || defined(USE_AVALON) || defined(USE_HASHFAST) || defined(USE_BITFURY) || defined(USE_KLONDIKE) || defined(USE_KNC) || defined(USE_BAB) || defined(USE_DRILLBIT) || defined(USE_MINION)
 #define HAVE_AN_ASIC 1
 #endif
 
@@ -170,6 +170,18 @@ static const char *DEVICECODE = ""
 #endif
 #ifdef USE_HASHFAST
 			"HFA "
+#endif
+#ifdef USE_HEXMINERA
+			"HEXa "
+#endif
+#ifdef USE_HEXMINERB
+			"HEXb "
+#endif
+#ifdef USE_HEXMINERC
+			"HEXc "
+#endif
+#ifdef USE_HEXMINERU
+			"HEXu "
 #endif
 #ifdef USE_ICARUS
 			"ICA "
@@ -3032,14 +3044,38 @@ static int itemstats(struct io_data *io_data, int i, char *id, struct cgminer_st
 {
 	struct api_data *root = NULL;
 
+#if defined(USE_HEXMINERA) || defined(USE_HEXMINERB) || defined(USE_HEXMINERC)
+	char *enabled;
+	char *status;
+	char *is_hex = NULL;
+	is_hex = strstr(id, "HEX");
+#endif
+  
 	root = api_add_int(root, "STATS", &i, false);
 	root = api_add_string(root, "ID", id, false);
+	#if defined(USE_HEXMINERA) || defined(USE_HEXMINERB) || defined(USE_HEXMINERC)
+	if(is_hex && cgpu) {
+		if (cgpu->deven != DEV_DISABLED)
+			enabled = (char *)YES;
+		else
+			enabled = (char *)NO;
+		
+		status = (char *)status2str(cgpu->status);
+		root = api_add_string(root, "Enabled", enabled, false);
+		root = api_add_string(root, "Status", status, false);
+	}
+	#endif
 	root = api_add_elapsed(root, "Elapsed", &(total_secs), false);
+	#if defined(USE_HEXMINERA) || defined(USE_HEXMINERB) || defined(USE_HEXMINERC)
+	if(is_hex == NULL) {
+	#endif
 	root = api_add_uint32(root, "Calls", &(stats->getwork_calls), false);
 	root = api_add_timeval(root, "Wait", &(stats->getwork_wait), false);
 	root = api_add_timeval(root, "Max", &(stats->getwork_wait_max), false);
 	root = api_add_timeval(root, "Min", &(stats->getwork_wait_min), false);
-
+	#if defined(USE_HEXMINERA) || defined(USE_HEXMINERB) || defined(USE_HEXMINERC)
+	} 
+	#endif
 	if (pool_stats) {
 		root = api_add_uint32(root, "Pool Calls", &(pool_stats->getwork_calls), false);
 		root = api_add_uint32(root, "Pool Attempts", &(pool_stats->getwork_attempts), false);
@@ -3069,6 +3105,10 @@ static int itemstats(struct io_data *io_data, int i, char *id, struct cgminer_st
 
 	if (cgpu) {
 #ifdef USE_USBUTILS
+	#if defined(USE_HEXMINERA) || defined(USE_HEXMINERB) || defined(USE_HEXMINERC)
+	if(is_hex == NULL) {
+	#endif
+	
 		char details[256];
 
 		if (cgpu->usbinfo.pipe_count)
@@ -3122,6 +3162,10 @@ static int itemstats(struct io_data *io_data, int i, char *id, struct cgminer_st
 		}
 
 		root = api_add_string(root, "USB tmo", details, true);
+ #if defined(USE_HEXMINERA) || defined(USE_HEXMINERB) || defined(USE_HEXMINERC)
+	}
+ #endif
+	
 #endif
 	}
 
