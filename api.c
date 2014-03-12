@@ -2202,95 +2202,6 @@ static void pgadev(struct io_data *io_data, __maybe_unused SOCKETTYPE c, char *p
 		io_close(io_data);
 }
 
-static void edevstatus(struct io_data *io_data, __maybe_unused SOCKETTYPE c, char *param, bool isjson, __maybe_unused char group)
-{
-	bool io_open = false;
-	int devcount = 0;
-	int numasc = 0;
-	int numpga = 0;
-	int i;
-	time_t howoldsec = 0;
-
-#ifdef HAVE_AN_ASIC
-	numasc = numascs();
-#endif
-
-#ifdef HAVE_AN_FPGA
-	numpga = numpgas();
-#endif
-
-	if (numpga == 0 && numasc == 0) {
-		message(io_data, MSG_NODEVS, 0, NULL, isjson);
-		return;
-	}
-
-	if (param && *param)
-		howoldsec = (time_t)atoi(param);
-
-	message(io_data, MSG_DEVS, 0, NULL, isjson);
-	if (isjson)
-		io_open = io_add(io_data, COMSTR JSON_DEVS);
-
-#ifdef HAVE_AN_ASIC
-	if (numasc > 0) {
-		for (i = 0; i < numasc; i++) {
-#ifdef USE_USBUTILS
-			int dev = ascdevice(i);
-			if (dev < 0) // Should never happen
-				continue;
-
-			struct cgpu_info *cgpu = get_devices(dev);
-			if (!cgpu)
-				continue;
-			if (cgpu->blacklisted)
-				continue;
-			if (cgpu->usbinfo.nodev) {
-				if (howoldsec <= 0)
-					continue;
-				if ((when - cgpu->usbinfo.last_nodev.tv_sec) >= howoldsec)
-					continue;
-			}
-#endif
-
-			ascstatus(io_data, i, isjson, isjson && devcount > 0);
-
-			devcount++;
-		}
-	}
-#endif
-
-#ifdef HAVE_AN_FPGA
-	if (numpga > 0) {
-		for (i = 0; i < numpga; i++) {
-#ifdef USE_USBUTILS
-			int dev = pgadevice(i);
-			if (dev < 0) // Should never happen
-				continue;
-
-			struct cgpu_info *cgpu = get_devices(dev);
-			if (!cgpu)
-				continue;
-			if (cgpu->blacklisted)
-				continue;
-			if (cgpu->usbinfo.nodev) {
-				if (howoldsec <= 0)
-					continue;
-				if ((when - cgpu->usbinfo.last_nodev.tv_sec) >= howoldsec)
-					continue;
-			}
-#endif
-
-			pgastatus(io_data, i, isjson, isjson && devcount > 0);
-
-			devcount++;
-		}
-	}
-#endif
-
-	if (isjson && io_open)
-		io_close(io_data);
-}
-
 static void pgaenable(struct io_data *io_data, __maybe_unused SOCKETTYPE c, char *param, bool isjson, __maybe_unused char group)
 {
 	struct cgpu_info *cgpu;
@@ -2442,6 +2353,95 @@ static void pgaidentify(struct io_data *io_data, __maybe_unused SOCKETTYPE c, ch
 	}
 }
 #endif
+
+static void edevstatus(struct io_data *io_data, __maybe_unused SOCKETTYPE c, char *param, bool isjson, __maybe_unused char group)
+{
+	bool io_open = false;
+	int devcount = 0;
+	int numasc = 0;
+	int numpga = 0;
+	int i;
+	time_t howoldsec = 0;
+    
+#ifdef HAVE_AN_ASIC
+	numasc = numascs();
+#endif
+    
+#ifdef HAVE_AN_FPGA
+	numpga = numpgas();
+#endif
+    
+	if (numpga == 0 && numasc == 0) {
+		message(io_data, MSG_NODEVS, 0, NULL, isjson);
+		return;
+	}
+    
+	if (param && *param)
+		howoldsec = (time_t)atoi(param);
+    
+	message(io_data, MSG_DEVS, 0, NULL, isjson);
+	if (isjson)
+		io_open = io_add(io_data, COMSTR JSON_DEVS);
+    
+#ifdef HAVE_AN_ASIC
+	if (numasc > 0) {
+		for (i = 0; i < numasc; i++) {
+#ifdef USE_USBUTILS
+			int dev = ascdevice(i);
+			if (dev < 0) // Should never happen
+				continue;
+            
+			struct cgpu_info *cgpu = get_devices(dev);
+			if (!cgpu)
+				continue;
+			if (cgpu->blacklisted)
+				continue;
+			if (cgpu->usbinfo.nodev) {
+				if (howoldsec <= 0)
+					continue;
+				if ((when - cgpu->usbinfo.last_nodev.tv_sec) >= howoldsec)
+					continue;
+			}
+#endif
+            
+			ascstatus(io_data, i, isjson, isjson && devcount > 0);
+            
+			devcount++;
+		}
+	}
+#endif
+    
+#ifdef HAVE_AN_FPGA
+	if (numpga > 0) {
+		for (i = 0; i < numpga; i++) {
+#ifdef USE_USBUTILS
+			int dev = pgadevice(i);
+			if (dev < 0) // Should never happen
+				continue;
+            
+			struct cgpu_info *cgpu = get_devices(dev);
+			if (!cgpu)
+				continue;
+			if (cgpu->blacklisted)
+				continue;
+			if (cgpu->usbinfo.nodev) {
+				if (howoldsec <= 0)
+					continue;
+				if ((when - cgpu->usbinfo.last_nodev.tv_sec) >= howoldsec)
+					continue;
+			}
+#endif
+            
+			pgastatus(io_data, i, isjson, isjson && devcount > 0);
+            
+			devcount++;
+		}
+	}
+#endif
+    
+	if (isjson && io_open)
+		io_close(io_data);
+}
 
 static void poolstatus(struct io_data *io_data, __maybe_unused SOCKETTYPE c, __maybe_unused char *param, bool isjson, __maybe_unused char group)
 {
