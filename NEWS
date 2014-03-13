@@ -1,3 +1,8 @@
+Version 3.7.3 - 13th March 2014
+
+- Minimise risk of nonce2 overflow with small nonce2 lengths by always encoding
+the work little endian, and increasing the maximum size of nonce2 to 8 bytes.
+
 Version 3.7.2 - 5th November 2013
 
 - Clean up completely on avalon shutdown.
