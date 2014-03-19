@@ -1,6 +1,7 @@
 /*
  * Copyright 2013 Avalon project
  * Copyright 2013-2014 Con Kolivas <kernel@kolivas.org>
+ * Copyright 2014 James Hilliard <james.hilliard1@gmail.com>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the Free
@@ -49,6 +50,12 @@
 /* change here if you want to risk killing it :)  */
 #define BITBURNER_FURY_MAX_COREMV 1100
 
+/* Coincraft A1-based BitBurner. */
+#define BITBURNER_A1_DEFAULT_CORE_VOLTAGE 850 /* in millivolts */
+#define BITBURNER_A1_MIN_COREMV 700
+/* change here if you want to risk killing it :)  */
+#define BITBURNER_A1_MAX_COREMV 1100
+
 
 #define AVALON_DEFAULT_TIMEOUT 0x2D
 #define AVALON_MIN_FREQUENCY 256
@@ -64,6 +71,11 @@
 #define BITBURNER_FURY_DEFAULT_MINER_NUM 128
 #define BITBURNER_FURY_DEFAULT_FREQUENCY 256
 #define BITBURNER_FURY_DEFAULT_TIMEOUT 50
+
+/* Default number of miners for Bitburner A1 is for a stack of 8 boards,
+   but it will work acceptably for smaller stacks, too */
+#define BITBURNER_A1_DEFAULT_MINER_NUM 40
+#define BITBURNER_A1_DEFAULT_FREQUENCY 800
 
 #define AVALON_AUTO_CYCLE 1024
 
@@ -200,6 +212,7 @@ extern int opt_avalon_freq_max;
 extern bool opt_avalon_auto;
 extern int opt_bitburner_core_voltage;
 extern int opt_bitburner_fury_core_voltage;
+extern int opt_bitburner_a1_core_voltage;
 extern char *set_avalon_fan(char *arg);
 extern char *set_avalon_freq(char *arg);
 

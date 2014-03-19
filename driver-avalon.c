@@ -3,6 +3,7 @@
  * Copyright 2012-2013 Xiangfu <xiangfu@openmobilefree.com>
  * Copyright 2012 Luke Dashjr
  * Copyright 2012 Andrew Smith
+ * Copyright 2014 James Hilliard <james.hilliard1@gmail.com>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the Free
@@ -50,10 +51,12 @@ int opt_avalon_freq_min = AVALON_MIN_FREQUENCY;
 int opt_avalon_freq_max = AVALON_MAX_FREQUENCY;
 int opt_bitburner_core_voltage = BITBURNER_DEFAULT_CORE_VOLTAGE;
 int opt_bitburner_fury_core_voltage = BITBURNER_FURY_DEFAULT_CORE_VOLTAGE;
+int opt_bitburner_a1_core_voltage = BITBURNER_A1_DEFAULT_CORE_VOLTAGE;
 bool opt_avalon_auto;
 
 static int option_offset = -1;
 static int bbf_option_offset = -1;
+static int bba_option_offset = -1;
 
 static int avalon_init_task(struct avalon_task *at,
 			    uint8_t reset, uint8_t ff, uint8_t fan,
@@ -112,8 +115,15 @@ static int avalon_init_task(struct avalon_task *at,
 
 	/* With 55nm, this is the real clock in Mhz, 1Mhz means 2Mhs */
 	lefreq16 = (uint16_t *)&buf[6];
-	if (asic == AVALON_A3256)
+	if (asic == AVALON_A3256) {
+		if (frequency > 0x3ff) {
+			/* frequency too big for main divider - need to use
+			 * smaller input divider */
+			buf[8] = 0x72;
+			frequency >>= 1;
+		}
 		frequency *= 8;
+	}
 	else
 		frequency = frequency * 32 / 50 + 0x7FE0;
 	*lefreq16 = htole16(frequency);
@@ -698,7 +708,7 @@ static bool is_bitburner(struct cgpu_info *avalon)
 	enum sub_ident ident;
 
 	ident = usb_ident(avalon);
-	return ident == IDENT_BTB || ident == IDENT_BBF;
+	return ident == IDENT_BTB || ident == IDENT_BBF || ident == IDENT_BBA;
 }
 
 static bool bitburner_set_core_voltage(struct cgpu_info *avalon, int core_voltage)
@@ -774,6 +784,32 @@ static void bitburner_get_version(struct cgpu_info *avalon)
 	}
 }
 
+static bool bitburner_flush(struct cgpu_info *avalon)
+{
+	struct avalon_info *info = avalon->device_data;
+	int err;
+
+	if (is_bitburner(avalon)) {
+		/* Check for version >= 1.4.0 */
+		if (info->version1 > 1 ||
+		    (info->version1 == 1 && info->version2 >= 4)) {
+			err = usb_transfer(avalon, FTDI_TYPE_OUT,
+					BITBURNER_REQUEST, BITBURNER_VALUE,
+					BITBURNER_INDEX_FLUSH, C_BB_FLUSH);
+			if (unlikely(err < 0)) {
+				applog(LOG_ERR, "%s%i: BitBurnerFlush failed: err = %d",
+					avalon->drv->name, avalon->device_id, err);
+				return false;
+			} else {
+				applog(LOG_WARNING, "%s%i: Issued flush command",
+					avalon->drv->name, avalon->device_id);
+			}
+			return true;
+		}
+	}
+	return false;
+}
+
 static struct cgpu_info *avalon_detect_one(libusb_device *dev, struct usb_find_devices *found)
 {
 	int baud, miner_count, asic_count, timeout, frequency, asic;
@@ -782,6 +818,7 @@ static struct cgpu_info *avalon_detect_one(libusb_device *dev, struct usb_find_d
 	struct cgpu_info *avalon;
 	bool configured;
 	int ret;
+	char *this_options;
 
 	avalon = usb_alloc_cgpu(&avalon_drv, AVALON_MINER_THREADS);
 
@@ -795,7 +832,16 @@ static struct cgpu_info *avalon_detect_one(libusb_device *dev, struct usb_find_d
 	if (!usb_init(avalon, dev, found))
 		goto shin;
 
-	this_option_offset = usb_ident(avalon) == IDENT_BBF ? ++bbf_option_offset : ++option_offset;
+	if (usb_ident(avalon) == IDENT_BBF && opt_bitburner_fury_options != NULL) {
+		this_options = opt_bitburner_fury_options;
+		this_option_offset = ++bbf_option_offset;
+	} else if (usb_ident(avalon) == IDENT_BBA && opt_bitburner_a1_options != NULL) {
+		this_options = opt_bitburner_a1_options;
+		this_option_offset = ++bba_option_offset;
+	} else {
+		this_options = opt_avalon_options;
+		this_option_offset = ++option_offset;
+	}
 	configured = get_options(this_option_offset, &baud, &miner_count,
 				 &asic_count, &timeout, &frequency, &asic,
 				 (usb_ident(avalon) == IDENT_BBF && opt_bitburner_fury_options != NULL) ? opt_bitburner_fury_options : opt_avalon_options);
@@ -828,6 +874,11 @@ static struct cgpu_info *avalon_detect_one(libusb_device *dev, struct usb_find_d
 			info->miner_count = BITBURNER_FURY_DEFAULT_MINER_NUM;
 			info->timeout = BITBURNER_FURY_DEFAULT_TIMEOUT;
 			info->frequency = BITBURNER_FURY_DEFAULT_FREQUENCY;
+			break;
+		case IDENT_BBA:
+			info->miner_count = BITBURNER_A1_DEFAULT_MINER_NUM;
+			info->timeout = AVALON_DEFAULT_TIMEOUT; // ignored by firmware
+			info->frequency = BITBURNER_A1_DEFAULT_FREQUENCY;
 			break;
 		default:
 			info->miner_count = AVALON_DEFAULT_MINER_NUM;
@@ -869,7 +920,8 @@ static struct cgpu_info *avalon_detect_one(libusb_device *dev, struct usb_find_d
 	       avalon->device_path, info->miner_count, info->asic_count, info->timeout,
 	       info->frequency, info->asic);
 
-	if (usb_ident(avalon) == IDENT_BTB) {
+	switch (usb_ident(avalon)) {
+	case IDENT_BTB:
 		if (opt_bitburner_core_voltage < BITBURNER_MIN_COREMV ||
 		    opt_bitburner_core_voltage > BITBURNER_MAX_COREMV) {
 			quit(1, "Invalid bitburner-voltage %d must be %dmv - %dmv",
@@ -878,7 +930,8 @@ static struct cgpu_info *avalon_detect_one(libusb_device *dev, struct usb_find_d
 				BITBURNER_MAX_COREMV);
 		} else
 			bitburner_set_core_voltage(avalon, opt_bitburner_core_voltage);
-	} else if (usb_ident(avalon) == IDENT_BBF) {
+		break;
+	case IDENT_BBF:
 		if (opt_bitburner_fury_core_voltage < BITBURNER_FURY_MIN_COREMV ||
 		    opt_bitburner_fury_core_voltage > BITBURNER_FURY_MAX_COREMV) {
 			quit(1, "Invalid bitburner-fury-voltage %d must be %dmv - %dmv",
@@ -887,6 +940,17 @@ static struct cgpu_info *avalon_detect_one(libusb_device *dev, struct usb_find_d
 				BITBURNER_FURY_MAX_COREMV);
 		} else
 			bitburner_set_core_voltage(avalon, opt_bitburner_fury_core_voltage);
+		break;
+	case IDENT_BBA:
+		if (opt_bitburner_a1_core_voltage < BITBURNER_A1_MIN_COREMV ||
+		    opt_bitburner_a1_core_voltage > BITBURNER_A1_MAX_COREMV) {
+			quit(1, "Invalid bitburner-a1-voltage %d must be %dmv - %dmv",
+				opt_bitburner_a1_core_voltage,
+				BITBURNER_A1_MIN_COREMV,
+				BITBURNER_A1_MAX_COREMV);
+		} else
+			bitburner_set_core_voltage(avalon, opt_bitburner_a1_core_voltage);
+		break;
 	}
 
 	if (is_bitburner(avalon)) {
@@ -1010,7 +1074,7 @@ static void *avalon_get_results(void *userdata)
 	const int rsize = AVALON_FTDI_READSIZE;
 	char readbuf[AVALON_READBUF_SIZE];
 	struct thr_info *thr = info->thr;
-	int offset = 0, ret = 0;
+	int old_offset, offset = 0, ret = 0;
 	char threadname[16];
 
 	snprintf(threadname, sizeof(threadname), "%d/AvaRecv", avalon->device_id);
@@ -1019,8 +1083,14 @@ static void *avalon_get_results(void *userdata)
 	while (likely(!avalon->shutdown)) {
 		char buf[rsize];
 
-		if (offset >= (int)AVALON_READ_SIZE)
-			avalon_parse_results(avalon, info, thr, readbuf, &offset);
+		/* Eat up all results from the read buffer, to prevent results
+                 * from accumulating there in the case that more than one
+                 * result is received per avalon_read call. */
+		do {
+			old_offset = offset;
+			if (offset >= (int)AVALON_READ_SIZE)
+				avalon_parse_results(avalon, info, thr, readbuf, &offset);
+		} while (unlikely(offset != old_offset));
 
 		if (unlikely(offset + rsize >= AVALON_READBUF_SIZE)) {
 			/* This should never happen */
@@ -1062,11 +1132,13 @@ static void avalon_rotate_array(struct cgpu_info *avalon, struct avalon_info *in
 	mutex_unlock(&info->qlock);
 }
 
-static void bitburner_rotate_array(struct cgpu_info *avalon)
+static void bitburner_rotate_array(struct cgpu_info *avalon, struct avalon_info *info)
 {
+	mutex_lock(&info->qlock);
 	avalon->queued = 0;
 	if (++avalon->work_array >= BITBURNER_ARRAY_SIZE)
 		avalon->work_array = 0;
+	mutex_unlock(&info->qlock);
 }
 
 static void avalon_set_timeout(struct avalon_info *info)
@@ -1257,13 +1329,13 @@ static void *bitburner_send_tasks(void *userdata)
 		} while (!avalon->shutdown && i++ < 15
 			&& avalon->queued < avalon_get_work_count);
 
-		mutex_lock(&info->qlock);
 		start_count = avalon->work_array * avalon_get_work_count;
 		end_count = start_count + avalon_get_work_count;
 		for (i = start_count, j = 0; i < end_count; i++, j++) {
 			while (avalon_buffer_full(avalon))
 				cgsleep_ms(40);
 
+			mutex_lock(&info->qlock);
 			if (likely(j < avalon->queued && !info->overheat && avalon->works[i])) {
 				avalon_init_task(&at, 0, 0, info->fan_pwm,
 						info->timeout, info->asic_count,
@@ -1284,6 +1356,7 @@ static void *bitburner_send_tasks(void *userdata)
 				 * idling any miners. */
 				avalon_reset_auto(info);
 			}
+			mutex_unlock(&info->qlock);
 
 			ret = bitburner_send_task(&at, avalon);
 
@@ -1296,8 +1369,7 @@ static void *bitburner_send_tasks(void *userdata)
 			}
 		}
 
-		bitburner_rotate_array(avalon);
-		mutex_unlock(&info->qlock);
+		bitburner_rotate_array(avalon, info);
 
 		cgsem_post(&info->qsem);
 
@@ -1576,6 +1648,8 @@ static void avalon_flush_work(struct cgpu_info *avalon)
 	/* Will overwrite any work queued. Do this unlocked since it's just
 	 * changing a single non-critical value and prevents deadlocks */
 	avalon->queued = 0;
+	if (is_bitburner(avalon))
+		bitburner_flush(avalon);
 
 	/* Signal main loop we need more work */
 	cgsem_post(&info->qsem);
