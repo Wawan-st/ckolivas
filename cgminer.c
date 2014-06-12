@@ -6017,7 +6017,7 @@ static void gen_stratum_work(struct pool *pool, struct work *work)
 	cg_wlock(&pool->data_lock);
 
 	/* Update coinbase */
-	memcpy(pool->coinbase + pool->nonce2_offset, &pool->nonce2, sizeof(uint32_t));
+	memcpy(pool->coinbase + pool->nonce2_offset, &pool->nonce2, pool->n2size);
 	work->nonce2 = pool->nonce2++;
 	work->nonce2_len = pool->n2size;
 
