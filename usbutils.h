@@ -468,8 +468,8 @@ void usb_uninit(struct cgpu_info *cgpu);
 bool usb_init(struct cgpu_info *cgpu, struct libusb_device *dev, struct usb_find_devices *found);
 void __usb_detect(struct device_drv *drv, struct cgpu_info *(*device_detect)(struct libusb_device *, struct usb_find_devices *),
 		  bool single);
-#define usb_detect(drv, cgpu) __usb_detect(drv, cgpu, false)
-#define usb_detect_one(drv, cgpu) __usb_detect(drv, cgpu, true)
+#define usb_detect(drv, device_detect_hook) __usb_detect(drv, device_detect_hook, false)
+#define usb_detect_one(drv, device_detect_hook) __usb_detect(drv, device_detect_hook, true)
 struct api_data *api_usb_stats(int *count);
 void update_usb_stats(struct cgpu_info *cgpu);
 void usb_reset(struct cgpu_info *cgpu);
