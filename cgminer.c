@@ -3187,7 +3187,7 @@ static bool submit_upstream_work(struct work *work, CURL *curl, bool resubmit)
 		endian_flip128(work->data, work->data);
 
 		/* build hex string */
-		hexstr = bin2hex(work->data, 118);
+		hexstr = bin2hex(work->data, 128);
 		s = strdup("{\"method\": \"getwork\", \"params\": [ \"");
 		s = realloc_strcat(s, hexstr);
 		s = realloc_strcat(s, "\" ], \"id\":1}");
