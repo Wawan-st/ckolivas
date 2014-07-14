@@ -12,9 +12,9 @@
 #define SPONDA_HFILE
 
 #include "miner.h"
-#include "mg_proto_parser.h"
+#include "driver-spondoolies-sp30-p.h"
 
-#define SP_NTIME
+
 
 typedef enum adapter_state {
 	ADAPTER_STATE_INIT,
@@ -26,17 +26,16 @@ typedef enum spond_work_state {
 	SPONDWORK_STATE_IN_BUSY,
 } SPONDWORK_STATE;
 
-#define MAX_JOBS_IN_MINERGATE MINERGATE_TOTAL_QUEUE // 1.5 sec worth of jobs
-#define MAX_NROLES 50 
+#define MAX_JOBS_IN_MINERGATE_SP30 MINERGATE_TOTAL_QUEUE_SP30 // 1.5 sec worth of jobs
+#define MAX_NROLES 60 
 
 typedef struct {
 	struct work      *cgminer_work;
 	SPONDWORK_STATE  state;
 	uint32_t         merkle_root;
 	time_t           start_time;
-	int              job_id[MAX_NROLES];
-	int              ntime_clones;
-} spond_driver_work;
+	int              job_id;
+} spond_driver_work_sp30;
 
 struct spond_adapter {
 	pthread_mutex_t lock;
@@ -57,9 +56,9 @@ struct spond_adapter {
 	int reset_mg_queue;  // 2=reset, 1=fast send, 0=nada
 	int current_job_id;
 	int parse_resp;
-	minergate_req_packet* mp_next_req;
-	minergate_rsp_packet* mp_last_rsp;
-	spond_driver_work my_jobs[MAX_JOBS_IN_MINERGATE];
+	minergate_req_packet_sp30* mp_next_req;
+	minergate_rsp_packet_sp30* mp_last_rsp;
+	spond_driver_work_sp30 my_jobs[MAX_JOBS_IN_MINERGATE_SP30];
 
 	// Temperature statistics
 	int temp_rate;
@@ -77,6 +76,6 @@ int spond_do_scaling(struct spond_adapter *a);
 extern void one_sec_spondoolies_watchdog(int uptime);
 
 #define REQUEST_PERIOD (100000)  //  times per second - in usec
-#define REQUEST_SIZE   100      //  jobs per request
+#define REQUEST_SIZE   10      //  jobs per request
 
 #endif

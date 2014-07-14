@@ -40,8 +40,8 @@
 
 #include "compat.h"
 #include "miner.h"
-#include "mg_proto_parser.h"
-#include "driver-spondoolies.h"
+#include "driver-spondoolies-sp30-p.h"
+#include "driver-spondoolies-sp30.h"
 
 #ifdef WORDS_BIGENDIAN
 #  define swap32tobe(out, in, sz)  ((out == in) ? (void)0 : memmove(out, in, sz))
@@ -63,38 +63,39 @@ static inline void swap32yes(void *out, const void *in, size_t sz)
 		(((uint32_t*)out)[swapcounter]) = swab32(((uint32_t*)in)[swapcounter]);
 }
 
-static void send_minergate_pkt(const minergate_req_packet* mp_req, minergate_rsp_packet* mp_rsp,
+static void send_minergate_pkt(const minergate_req_packet_sp30* mp_req, minergate_rsp_packet_sp30* mp_rsp,
 			       int  socket_fd)
 {
 	int nbytes, nwrote, nread;
 
-	nbytes = sizeof(minergate_req_packet);
+	nbytes = sizeof(minergate_req_packet_sp30);
 	nwrote = write(socket_fd, (const void *)mp_req, nbytes);
 	if (unlikely(nwrote != nbytes))
 		_quit(-1);
-	nbytes = sizeof(minergate_rsp_packet);
+	nbytes = sizeof(minergate_rsp_packet_sp30);
 	nread = read(socket_fd, (void *)mp_rsp, nbytes);
 	if (unlikely(nread != nbytes))
 		_quit(-1);
-	passert(mp_rsp->magic == 0xcaf4);
+	assert(mp_rsp->magic == 0xcaf4);
 }
 
 static bool spondoolies_prepare(struct thr_info *thr)
 {
-	struct cgpu_info *spondoolies = thr->cgpu;
+	struct cgpu_info *spondoolies_sp30 = thr->cgpu;
 	struct timeval now;
 
-	assert(spondoolies);
+	assert(spondoolies_sp30);
 	cgtime(&now);
 	/* FIXME: Vladik */
 #if NEED_FIX
-	get_datestamp(spondoolies->init, &now);
+	get_datestamp(spondoolies_sp30->init, &now);
 #endif
 	return true;
 }
 
 static int init_socket(void)
 {
+  printf("Init\n");
 	int socket_fd = socket(PF_UNIX, SOCK_STREAM, 0);
 	struct sockaddr_un address;
 
@@ -108,7 +109,7 @@ static int init_socket(void)
 	memset(&address, 0, sizeof(struct sockaddr_un));
 
 	address.sun_family = AF_UNIX;
-	sprintf(address.sun_path, MINERGATE_SOCKET_FILE);
+	sprintf(address.sun_path, MINERGATE_SOCKET_FILE_SP30);
 
 	if(connect(socket_fd, (struct sockaddr *) &address, sizeof(struct sockaddr_un))) {
 		printf("connect() failed\n");
@@ -144,7 +145,7 @@ static bool spondoolies_flush_queue(struct spond_adapter* a, bool flush_queue)
 static void spondoolies_detect(__maybe_unused bool hotplug)
 {
 	struct cgpu_info *cgpu = calloc(1, sizeof(*cgpu));
-	struct device_drv *drv = &spondoolies_drv;
+	struct device_drv *drv = &sp30_drv;
 	struct spond_adapter *a;
 
 #if NEED_FIX
@@ -161,8 +162,8 @@ static void spondoolies_detect(__maybe_unused bool hotplug)
 	a = cgpu->device_data;
 	a->cgpu = (void *)cgpu;
 	a->adapter_state = ADAPTER_STATE_OPERATIONAL;
-	a->mp_next_req = allocate_minergate_packet_req(0xca, 0xfe);
-	a->mp_last_rsp = allocate_minergate_packet_rsp(0xca, 0xfe);
+	a->mp_next_req = allocate_minergate_packet_req_sp30(0xca, 0xfe);
+	a->mp_last_rsp = allocate_minergate_packet_rsp_sp30(0xca, 0xfe);
 
 	pthread_mutex_init(&a->lock, NULL);
 	a->socket_fd = init_socket();
@@ -219,13 +220,12 @@ static void spondoolies_shutdown(__maybe_unused struct thr_info *thr)
 {
 }
 
-static void fill_minergate_request(minergate_do_job_req* work, struct work *cg_work,
-				   int ntime_offset)
+static void fill_minergate_request(minergate_do_job_req_sp30* work, struct work *cg_work, int max_offset)
 {
 	uint32_t x[64/4];
 	uint64_t wd;
 
-	memset(work, 0, sizeof(minergate_do_job_req));
+	memset(work, 0, sizeof(minergate_do_job_req_sp30));
 	//work->
 	LOCAL_swap32le(unsigned char, cg_work->midstate, 32/4)
 	LOCAL_swap32le(unsigned char, cg_work->data+64, 64/4)
@@ -244,8 +244,9 @@ static void fill_minergate_request(minergate_do_job_req* work, struct work *cg_w
 	}
 	//printf("%d %d\n",work->leading_zeroes, (int)round(cg_work->work_difficulty));
 	work->work_id_in_sw = cg_work->subid;
-	work->ntime_limit = 0;
-	work->ntime_offset = ntime_offset;
+	work->ntime_limit = max_offset;
+  printf("ID:%d, TS:%x\n",work->work_id_in_sw,work->timestamp);
+	//work->ntime_offset = ntime_offset;
 }
 
 // returns true if queue full.
@@ -255,14 +256,14 @@ static bool spondoolies_queue_full(struct cgpu_info *cgpu)
 {
 	// Only once every 1/10 second do work.
 	struct spond_adapter* a = cgpu->device_data;
-	int next_job_id, ntime_clones, i;
+	int next_job_id, i;
 	struct timeval tv;
 	struct work *work;
 	unsigned int usec;
 	bool ret = false;
 
 	mutex_lock(&a->lock);
-	passert(a->works_pending_tx <= REQUEST_SIZE);
+	assert(a->works_pending_tx <= REQUEST_SIZE);
 
 	gettimeofday(&tv, NULL);
 
@@ -284,7 +285,7 @@ static bool spondoolies_queue_full(struct cgpu_info *cgpu)
 	}
 
 	// see if can take 1 more job.
-	next_job_id = (a->current_job_id + 1) % MAX_JOBS_IN_MINERGATE;
+	next_job_id = (a->current_job_id + 1) % MAX_JOBS_IN_MINERGATE_SP30;
 	if (a->my_jobs[next_job_id].cgminer_work) {
 		ret = true;
 		goto return_unlock;
@@ -305,18 +306,15 @@ static bool spondoolies_queue_full(struct cgpu_info *cgpu)
 	// Get pointer for the request
 	a->my_jobs[a->current_job_id].cgminer_work = work;
 	a->my_jobs[a->current_job_id].state = SPONDWORK_STATE_IN_BUSY;
-	a->my_jobs[a->current_job_id].ntime_clones = 0;
 
-	ntime_clones = (work->drv_rolllimit < MAX_NROLES) ? work->drv_rolllimit : MAX_NROLES;
-	for (i = 0 ; (i < ntime_clones) && (a->works_pending_tx < REQUEST_SIZE) ; i++) {
-		minergate_do_job_req* pkt_job =  &a->mp_next_req->req[a->works_pending_tx];
-		fill_minergate_request(pkt_job, work, i);
-		a->works_in_driver++;
-		a->works_pending_tx++;
-		a->mp_next_req->req_count++;
-		a->my_jobs[a->current_job_id].merkle_root = pkt_job->mrkle_root;
-		a->my_jobs[a->current_job_id].ntime_clones++;
-	}
+
+	int max_ntime_roll = (work->drv_rolllimit < MAX_NROLES) ? work->drv_rolllimit : MAX_NROLES;
+	minergate_do_job_req_sp30* pkt_job =  &a->mp_next_req->req[a->works_pending_tx];
+	fill_minergate_request(pkt_job, work, max_ntime_roll);
+	a->works_in_driver++;
+	a->works_pending_tx++;
+	a->mp_next_req->req_count++;
+	a->my_jobs[a->current_job_id].merkle_root = pkt_job->mrkle_root;
 
 return_unlock:
 	mutex_unlock(&a->lock);
@@ -372,34 +370,33 @@ static int64_t spond_scanhash(struct thr_info *thr)
 		for (i = 0; i < array_size; i++) { // walk the jobs
 			int job_id;
 
-			minergate_do_job_rsp* work = a->mp_last_rsp->rsp + i;
+			minergate_do_job_rsp_sp30* work = a->mp_last_rsp->rsp + i;
 			job_id = work->work_id_in_sw;
 			if ((a->my_jobs[job_id].cgminer_work)) {
 				if (a->my_jobs[job_id].merkle_root == work->mrkle_root) {
 					assert(a->my_jobs[job_id].state == SPONDWORK_STATE_IN_BUSY);
 					a->works_in_minergate_and_pending_tx--;
 					a->works_in_driver--;
-					for (j = 0; j < 2; j++) {
-						if (work->winner_nonce[j]) {
-							bool __maybe_unused ok;
-							struct work *cg_work = a->my_jobs[job_id].cgminer_work;
-#ifndef SP_NTIME
-							ok = submit_nonce(cg_work->thr, cg_work, work->winner_nonce[j]);
-#else
-							ok = submit_noffset_nonce(cg_work->thr, cg_work, work->winner_nonce[j], work->ntime_offset);
-#endif
-							//printf("OK on %d:%d = %d\n",work->work_id_in_sw,j, ok);
-							a->wins++;
-						}
+
+					if (work->winner_nonce) {
+						bool __maybe_unused ok;
+						struct work *cg_work = a->my_jobs[job_id].cgminer_work;
+						ok = submit_noffset_nonce(cg_work->thr, cg_work, work->winner_nonce, work->ntime_offset);
+						printf("OK on %d (+%d), none=%x = %d\n",
+              work->work_id_in_sw, work->ntime_offset, htole32(work->winner_nonce), ok);
+						a->wins++;
 					}
+            
 					//printf("%d ntime_clones = %d\n",job_id,a->my_jobs[job_id].ntime_clones);
-					if ((--a->my_jobs[job_id].ntime_clones) == 0) {
-						//printf("Done with %d\n", job_id);
-						work_completed(a->cgpu, a->my_jobs[job_id].cgminer_work);
-						a->good++;
-						a->my_jobs[job_id].cgminer_work = NULL;
-						a->my_jobs[job_id].state = SPONDWORK_STATE_EMPTY;
+
+					//printf("Done with %d\n", job_id);
+					if (work->job_complete) {
+  					work_completed(a->cgpu, a->my_jobs[job_id].cgminer_work);
+  					a->good++;
+  					a->my_jobs[job_id].cgminer_work = NULL;
+  					a->my_jobs[job_id].state = SPONDWORK_STATE_EMPTY;
 					}
+
 				} else {
 					a->bad++;
 					printf("Dropping minergate old job id=%d mrkl=%x my-mrkl=%x\n",
@@ -429,10 +426,10 @@ static void spond_flush_work(struct cgpu_info *cgpu)
 	mutex_unlock(&a->lock);
 }
 
-struct device_drv spondoolies_drv = {
-	.drv_id = DRIVER_spondoolies,
-	.dname = "Spondoolies",
-	.name = "SPN",
+struct device_drv sp30_drv = {
+	.drv_id = DRIVER_sp30,
+	.dname = "Sp30",
+	.name = "S30",
 	.max_diff = 64.0, // Limit max diff to get some nonces back regardless
 	.drv_detect = spondoolies_detect,
 	.get_api_stats = spondoolies_api_stats,
