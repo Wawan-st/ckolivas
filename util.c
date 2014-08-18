@@ -41,6 +41,7 @@
 #include "miner.h"
 #include "elist.h"
 #include "compat.h"
+#include "sha2.h"
 #include "util.h"
 
 #define DEFAULT_SOCKWAIT 60
@@ -730,6 +731,10 @@ static bool _valid_hex(char *s, const char *file, const char *func, const int li
 		return ret;
 	}
 	len = strlen(s);
+	if (len % 2) {
+		applog(LOG_ERR, "Odd string passed to valid_hex from"IN_FMT_FFL, file, func, line);
+		return ret;
+	}
 	for (i = 0; i < len; i++) {
 		unsigned char idx = s[i];
 
@@ -809,18 +814,27 @@ void b58tobin(unsigned char *b58bin, const char *b58)
 	}
 }
 
-void address_to_pubkeyhash(unsigned char *pkh, const char *addr)
+size_t address_to_pubkeyhash(unsigned char *pkh, const char *addr)
 {
 	unsigned char b58bin[25];
 
-	memset(b58bin, 0, 25);
 	b58tobin(b58bin, addr);
-	pkh[0] = 0x76;
-	pkh[1] = 0xa9;
-	pkh[2] = 0x14;
-	memcpy(&pkh[3], &b58bin[1], 20);
-	pkh[23] = 0x88;
-	pkh[24] = 0xac;
+	if (b58bin[0] == 0 || b58bin[0] == 111) {
+		pkh[0] = 0x76;
+		pkh[1] = 0xa9;
+		pkh[2] = 0x14;
+		memcpy(&pkh[3], &b58bin[1], 20);
+		pkh[23] = 0x88;
+		pkh[24] = 0xac;
+		return 25;
+	} else if (b58bin[0] == 5 || b58bin[0] == 196) {
+		pkh[0] = 0xa9;
+		pkh[1] = 0x14;
+		memcpy(&pkh[2], &b58bin[1], 20);
+		pkh[22] = 0x87;
+		return 23;
+	}
+	return 0;
 }
 
 /*  For encoding nHeight into coinbase, return how many bytes were used */
@@ -1717,13 +1731,244 @@ static char *json_array_string(json_t *val, unsigned int entry)
 	return NULL;
 }
 
+
+static const char b58digits[] = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+
+bool b58enc(char *b58, size_t *b58sz, const unsigned char *bin, size_t binsz)
+{
+	int i, j, carry, high, zcount = 0;
+	size_t size;
+	unsigned char *buf;
+
+	while (zcount < binsz && !bin[zcount]) ++zcount;
+
+	size = (binsz - zcount) * 138 / 100 + 1;
+	buf = malloc(size);
+	if (!buf)
+		return false;
+	memset(buf, 0, size);
+
+	for (i = zcount, high = size - 1; i < binsz; ++i, high = j) {
+		for (carry = bin[i], j = size - 1; (j > high) || carry; --j) {
+			carry += 256 * buf[j];
+			buf[j] = carry % 58;
+			carry /= 58;
+		}
+	}
+
+	for (j = 0; j < size && !buf[j]; ++j);
+
+	if (*b58sz <= zcount + size - j) {
+		free(buf);
+		*b58sz = zcount + size - j + 1;
+		return false;
+	}
+
+	if (zcount)
+		memset(b58, '1', zcount);
+	for (i = zcount; j < size; ++i, ++j)
+		b58[i] = b58digits[buf[j]];
+	b58[i] = '\0';
+	*b58sz = i + 1;
+
+	free(buf);
+	return true;
+}
+
+static bool test_address(char *addr, size_t *addrsz, unsigned char ver, const unsigned char *pkhash)
+{
+	unsigned char buf[25], hret[32];
+
+	buf[0] = ver;
+	memcpy(buf + 1, pkhash, 20);
+	sha256(buf, 21, hret);
+	sha256(hret, 32, hret);
+	memcpy(buf + 21, hret, 4);
+
+	if (b58enc(addr, addrsz, buf, 25) && (*addrsz == 35 || *addrsz == 34)) {
+		b58tobin(buf, addr);
+		return (buf[0] == ver && !memcmp(buf + 1, pkhash, 20));
+	}
+	return false;
+}
+
+size_t pubkeyhash_to_address(char *out, size_t outsz, const unsigned char *script, size_t scriptsz, bool testnet)
+{
+	char addr[35];
+	size_t size = sizeof(addr);
+	bool bok = false;
+
+	if (scriptsz == 25) {
+		if (script[0] != 0x76 || script[1] != 0xa9 || script[2] != 0x14 || script[23] != 0x88 || script[24] != 0xac)
+			return 0;
+		bok = test_address(addr, &size, testnet ? 0x6f : 0x00, script + 3);
+	} else if (scriptsz == 23) {
+		if (script[0] != 0xa9 || script[1] != 0x14 || script[22] != 0x87)
+			return 0;
+		bok = test_address(addr, &size, testnet ? 0xc4 : 0x05, script + 2);
+	}
+	if (!bok)
+		return 0;
+	if (outsz >= size)
+		strcpy(out, addr);
+	return size;
+}
+
+size_t varint_decode(const unsigned char *p, size_t size, uint64_t *n)
+{
+	if (size > 8 && p[0] == 0xff) {
+		*n = le64toh(*(uint64_t*)p);
+		return 9;
+	}
+	if (size > 4 && p[0] == 0xfe) {
+		*n = le32toh(*(uint32_t*)p);
+		return 5;
+	}
+	if (size > 2 && p[0] == 0xfd) {
+		*n = le16toh(*(uint16_t*)p);;
+		return 3;
+	}
+	if (size) {
+		*n = *p;
+		return 1;
+	}
+	return 0;
+}
+
+static inline bool do_compare(double value, struct compare_op *op)
+{
+	switch (op->op) {
+	case '>':
+		return (value > op->value);
+	case '<':
+		return (value < op->value);
+	case '=':
+		return (value == op->value);
+	default:
+		return true;
+	}
+}
+
+bool check_coinbase(const unsigned char *coinbase, size_t cbsize, struct coinbase_param *cb_param)
+{
+	int i;
+	size_t pos, target_script_len;
+	uint64_t len, total, target, amount, curr_pk_script_len;
+	bool on_testnet = false, found_target = false;
+	unsigned char target_script[25];
+	char addr[35];
+
+	if (cbsize < 62) { /* Smallest possible length */
+		applog(LOG_ERR, "Coinbase check: invalid length -- %zu", cbsize);
+		return false;
+	}
+	pos = 4; /* Skip the version */
+
+	if (coinbase[pos] != 1) {
+		applog(LOG_ERR, "Coinbase check: multiple inputs in coinbase: 0x%02x", coinbase[pos]);
+		return false;
+	}
+	pos += 1 /* varint length */ + 32 /* prevhash */ + 4 /* 0xffffffff */;
+
+	if (coinbase[pos] < 2 || coinbase[pos] > 100) {
+		applog(LOG_ERR, "Coinbase check: invalid input script sig length: 0x%02x", coinbase[pos]);
+		return false;
+	}
+	pos += 1 /* varint length */ + coinbase[pos] + 4 /* 0xffffffff */;
+
+	if (cbsize <= pos) {
+incomplete_cb:
+		applog(LOG_ERR, "Coinbase check: incomplete coinbase for payout check");
+		return false;
+	}
+
+	if (cb_param && cb_param->addr) {
+		target_script_len = address_to_pubkeyhash(target_script, cb_param->addr);
+		on_testnet = cb_param->addr[0] != '1' && cb_param->addr[0] != '3' && cb_param->addr[0] != 'x';
+	}
+
+	total = target = 0;
+
+	i = varint_decode(coinbase + pos, cbsize - pos, &len);
+	if (!i)
+		goto incomplete_cb;
+	pos += i;
+
+	while (len-- > 0) {
+		if (cbsize <= pos + 8)
+			goto incomplete_cb;
+
+		amount = le64toh(*(uint64_t *)(&coinbase[pos]));
+		pos += 8; /* amount length */
+
+		total += amount;
+
+		i = varint_decode(coinbase + pos, cbsize - pos, &curr_pk_script_len);
+		if (!i || cbsize <= pos + i + curr_pk_script_len)
+			goto incomplete_cb;
+		pos += i;
+
+		i = pubkeyhash_to_address(addr, sizeof(addr), coinbase + pos, curr_pk_script_len, on_testnet);
+		if (i && i <= sizeof(addr)) { /* So this script is to payout to an valid address */
+			if (cb_param && cb_param->addr) {
+				i = (target_script_len == curr_pk_script_len &&
+					!memcmp(target_script, coinbase + pos, curr_pk_script_len));
+				if (i) {
+					found_target = true;
+					target += amount;
+				}
+			} else
+				i = 0;
+			if (opt_debug)
+				applog(LOG_DEBUG, "Coinbase output: %10ld -- %34s%c", amount, addr, i ? '*' : '\0');
+		} else if (opt_debug) {
+			char *hex = addr;
+			if (curr_pk_script_len * 2 >= sizeof(addr))
+				hex = malloc(curr_pk_script_len * 2 + 1);
+			if (hex) {
+				__bin2hex(hex, coinbase + pos, curr_pk_script_len);
+				applog(LOG_DEBUG, "Coinbase output: %10ld PK %34s", amount, hex);
+				if (hex != addr)
+					free(hex);
+			} else
+				applog(LOG_DEBUG, "Coinbase output: %10ld PK (Unknown)", amount);
+		}
+
+		pos += curr_pk_script_len;
+	}
+	if (cb_param && cb_param->cb_total_op.op && !do_compare(total, &cb_param->cb_total_op)) {
+		applog(LOG_ERR, "Coinbase check: lopsided total output amount = %ld, expecting %c %ld",
+			total, cb_param->cb_total_op.op, (uint64_t)cb_param->cb_total_op.value);
+		return false;
+	}
+	if (cb_param && cb_param->cb_percent_op.op && !(total && do_compare((double)target / total, &cb_param->cb_percent_op))) {
+		applog(LOG_ERR, "Coinbase check: lopsided target/total = %g(%ld/%ld), expecting %c %g",
+			(total ? (double)target / total : 0), target, total, cb_param->cb_percent_op.op, cb_param->cb_percent_op.value);
+		return false;
+	} else if (cb_param && cb_param->addr && !found_target) {
+		applog(LOG_ERR, "Coinbase check: not found target %s", cb_param->addr);
+		return false;
+	}
+
+	if (cbsize < pos + 4) {
+		applog(LOG_ERR, "Coinbase check: No room for locktime");
+		return false;
+	}
+	pos += 4;
+
+	if (opt_debug)
+		applog(LOG_DEBUG, "Coinbase: (size, pos, target, total) = (%zu, %zu, %ld, %ld)", cbsize, pos, target, total);
+
+	return true;
+}
+
 static char *blank_merkle = "0000000000000000000000000000000000000000000000000000000000000000";
 
 static bool parse_notify(struct pool *pool, json_t *val)
 {
 	char *job_id, *prev_hash, *coinbase1, *coinbase2, *bbversion, *nbit,
 	     *ntime, header[228];
-	unsigned char *cb1 = NULL, *cb2 = NULL;
+	unsigned char *coinbase;
 	size_t cb1_len, cb2_len, alloc_len;
 	bool clean, ret = false;
 	int merkles, i;
@@ -1747,6 +1992,7 @@ static bool parse_notify(struct pool *pool, json_t *val)
 	if (!valid_ascii(job_id) || !valid_hex(prev_hash) || !valid_hex(coinbase1) ||
 	    !valid_hex(coinbase2) || !valid_hex(bbversion) || !valid_hex(nbit) ||
 	    !valid_hex(ntime)) {
+release_memory:
 		/* Annoying but we must not leak memory */
 		free(job_id);
 		free(coinbase1);
@@ -1754,18 +2000,38 @@ static bool parse_notify(struct pool *pool, json_t *val)
 		goto out;
 	}
 
+	cb1_len = strlen(coinbase1) / 2;
+	cb2_len = strlen(coinbase2) / 2;
+	alloc_len = cb1_len + pool->n1_len + pool->n2size + cb2_len;
+	align_len(&alloc_len);
+	coinbase = calloc(alloc_len, 1);
+	if (unlikely(!coinbase))
+		quit(1, "Failed to calloc coinbase in parse_notify");
+	hex2bin(coinbase, coinbase1, cb1_len);
+	hex2bin(coinbase + cb1_len + pool->n1_len + pool->n2size, coinbase2, cb2_len);
+	if (!check_coinbase(coinbase, cb1_len + pool->n1_len + pool->n2size + cb2_len, &pool->cb_param)) {
+		free(coinbase);
+		/* Disable for around 5 minutes */
+		disable_pool(pool, POOL_MISBEHAVING, 300);
+		applog(LOG_ERR, "Mark pool %d as misbehaving for broken coinbase from stratum notify", pool->pool_no);
+		goto release_memory;
+	}
+
 	cg_wlock(&pool->data_lock);
+
+	free(pool->coinbase);
+	pool->coinbase = coinbase;
+	pool->coinbase_len = cb1_len + pool->n1_len + pool->n2size + cb2_len;
+	memcpy(coinbase + cb1_len, pool->nonce1bin, pool->n1_len);
+	pool->nonce2_offset = cb1_len + pool->n1_len;
+
 	free(pool->swork.job_id);
 	pool->swork.job_id = job_id;
 	snprintf(pool->prev_hash, 65, "%s", prev_hash);
-	cb1_len = strlen(coinbase1) / 2;
-	cb2_len = strlen(coinbase2) / 2;
 	snprintf(pool->bbversion, 9, "%s", bbversion);
 	snprintf(pool->nbit, 9, "%s", nbit);
 	snprintf(pool->ntime, 9, "%s", ntime);
 	pool->swork.clean = clean;
-	alloc_len = pool->coinbase_len = cb1_len + pool->n1_len + pool->n2size + cb2_len;
-	pool->nonce2_offset = cb1_len + pool->n1_len;
 
 	for (i = 0; i < pool->merkles; i++)
 		free(pool->swork.merkle_bin[i]);
@@ -1815,32 +2081,12 @@ static bool parse_notify(struct pool *pool, json_t *val)
 		goto out_unlock;
 	}
 
-	cb1 = alloca(cb1_len);
-	ret = hex2bin(cb1, coinbase1, cb1_len);
-	if (unlikely(!ret)) {
-		applog(LOG_ERR, "Failed to convert cb1 to cb1_bin in parse_notify");
-		goto out_unlock;
-	}
-	cb2 = alloca(cb2_len);
-	ret = hex2bin(cb2, coinbase2, cb2_len);
-	if (unlikely(!ret)) {
-		applog(LOG_ERR, "Failed to convert cb2 to cb2_bin in parse_notify");
-		goto out_unlock;
-	}
-	free(pool->coinbase);
-	align_len(&alloc_len);
-	pool->coinbase = calloc(alloc_len, 1);
-	if (unlikely(!pool->coinbase))
-		quit(1, "Failed to calloc pool coinbase in parse_notify");
-	memcpy(pool->coinbase, cb1, cb1_len);
-	memcpy(pool->coinbase + cb1_len, pool->nonce1bin, pool->n1_len);
-	memcpy(pool->coinbase + cb1_len + pool->n1_len + pool->n2size, cb2, cb2_len);
 	if (opt_debug) {
 		char *cb = bin2hex(pool->coinbase, pool->coinbase_len);
-
 		applog(LOG_DEBUG, "Pool %d coinbase %s", pool->pool_no, cb);
 		free(cb);
 	}
+
 out_unlock:
 	cg_wunlock(&pool->data_lock);
 

@@ -141,6 +141,7 @@ static const char *INIT = "Initialising";
 static const char *DISABLED = "Disabled";
 static const char *ALIVE = "Alive";
 static const char *REJECTING = "Rejecting";
+static const char *MISBEHAVING = "Misbehaving";
 static const char *UNKNOWN = "Unknown";
 
 static __maybe_unused const char *NONE = "None";
@@ -2514,6 +2515,9 @@ static void poolstatus(struct io_data *io_data, __maybe_unused SOCKETTYPE c, __m
 			case POOL_REJECTING:
 				status = (char *)REJECTING;
 				break;
+			case POOL_MISBEHAVING:
+				status = (char *)MISBEHAVING;
+				break;
 			case POOL_ENABLED:
 				if (pool->idle)
 					status = (char *)DEAD;
@@ -2998,7 +3002,6 @@ static void removepool(struct io_data *io_data, __maybe_unused SOCKETTYPE c, cha
 		return;
 	}
 
-	pool->enabled = POOL_DISABLED;
 	rpc_url = escape_string(pool->rpc_url, isjson);
 	if (rpc_url != pool->rpc_url)
 		dofree = true;

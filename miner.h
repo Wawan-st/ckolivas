@@ -1167,6 +1167,7 @@ enum pool_enable {
 	POOL_DISABLED,
 	POOL_ENABLED,
 	POOL_REJECTING,
+	POOL_MISBEHAVING,
 };
 
 struct stratum_work {
@@ -1175,6 +1176,11 @@ struct stratum_work {
 	bool clean;
 
 	double diff;
+};
+
+struct coinbase_param {
+	char *addr;
+	struct compare_op cb_total_op, cb_percent_op;
 };
 
 #define RBUFSIZE 8192
@@ -1203,6 +1209,7 @@ struct pool {
 	bool lagging;
 	bool probed;
 	enum pool_enable enabled;
+	time_t status_reset_time;
 	bool submit_old;
 	bool removed;
 	bool lp_started;
@@ -1300,7 +1307,7 @@ struct pool {
 	char *txn_data;
 	unsigned char scriptsig_base[100];
 	unsigned char script_pubkey[25 + 3];
-	int nValue;
+	int nValue, script_pubkey_len;
 	CURL *gbt_curl;
 	bool gbt_curl_inuse;
 
@@ -1308,6 +1315,7 @@ struct pool {
 	size_t n1_len;
 	unsigned char *coinbase;
 	int coinbase_len;
+	struct coinbase_param cb_param;
 	int nonce2_offset;
 	unsigned char header_bin[128];
 	int merkles;
@@ -1469,6 +1477,7 @@ extern void _discard_work(struct work *work);
 	_discard_work(WORK); \
 	WORK = NULL; \
 } while (0)
+extern void disable_pool(struct pool *pool, enum pool_enable enable_status, unsigned int reset_interval);
 extern void remove_pool(struct pool *pool);
 extern void write_config(FILE *fcfg);
 extern void zero_bestshare(void);
