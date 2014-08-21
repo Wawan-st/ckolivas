@@ -674,7 +674,8 @@ struct pool *add_pool(void)
 	adjust_quota_gcd();
 
 	pool->cb_param.addr = NULL;
-	pool->cb_param.cb_total_op.op = pool->cb_param.cb_percent_op.op = '\0';
+	pool->cb_param.cb_total = 0;
+	pool->cb_param.cb_percent = 0;
 
 	return pool;
 }
@@ -880,18 +881,6 @@ static char *set_cbaddr(const char *arg)
 	return NULL;
 }
 
-static inline bool get_compare_param(const char *arg, struct compare_op *op)
-{
-	if (strlen(arg) < 2 ||
-		(arg[0] != '>' && arg[0] != '+' && arg[0] != '<' && arg[0] != '-' && arg[0] != '='))
-		return false;
-
-	op->op = (arg[0] == '+' ? '>' : (arg[0] == '-' ? '<' : arg[0]));
-	op->value = atof(&arg[1]);
-
-	return true;
-}
-
 static char *set_cbtotal_op(const char *arg)
 {
 	struct pool *pool;
@@ -901,8 +890,9 @@ static char *set_cbtotal_op(const char *arg)
 		add_pool();
 
 	pool = pools[total_cbtotals - 1];
-	if (!get_compare_param(arg, &pool->cb_param.cb_total_op))
-		return "Invalid cbtotal comparison op";
+	pool->cb_param.cb_total = atoll(arg);
+	if (pool->cb_param.cb_total < 0)
+		return "The total payout amount in coinbase should be greater than 0";
 
 	return NULL;
 }
@@ -916,8 +906,9 @@ static char *set_cbperc_op(const char *arg)
 		add_pool();
 
 	pool = pools[total_cbpercs - 1];
-	if (!get_compare_param(arg, &pool->cb_param.cb_percent_op))
-		return "Invalid cbperc comparison op";
+	pool->cb_param.cb_percent = atof(arg);
+	if (pool->cb_param.cb_percent < 0.0 || pool->cb_param.cb_percent > 1.0)
+		return "The percentage should be between 0 and 1";
 
 	return NULL;
 }
@@ -1604,13 +1595,13 @@ static struct opt_table opt_config_table[] = {
 			"Display extra work time debug information"),
 	OPT_WITH_ARG("--cbaddr",
 			set_cbaddr, NULL, &opt_set_null,
-			"Bitcoin ddress expected in coinbase payout list"),
+			"Bitcoin address (list) expected in coinbase payout list"),
 	OPT_WITH_ARG("--cbtotal",
 			set_cbtotal_op, NULL, &opt_set_null,
-			"Total payout amount expected in coinbase, e.g. >2499999999(or +2499999999), =2500000000, or <2600000000(or -2600000000)"),
+			"The least total payout amount expected in coinbase"),
 	OPT_WITH_ARG("--cbperc",
 			set_cbperc_op, NULL, &opt_set_null,
-			"Benefit percentage expected for the specified cbaddr, e.g. >0.9(or +0.9), =0.99, or <1.0(or -1.0)"),
+			"The least benefit percentage expected for the specified cbaddr(s)"),
 	OPT_ENDTABLE
 };
 

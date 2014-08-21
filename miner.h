@@ -1180,7 +1180,8 @@ struct stratum_work {
 
 struct coinbase_param {
 	char *addr;
-	struct compare_op cb_total_op, cb_percent_op;
+	int64_t cb_total;
+	float cb_percent;
 };
 
 #define RBUFSIZE 8192

@@ -64,11 +64,6 @@
 	#endif
 #endif
 
-struct compare_op {
-	char op;	/* '>', '<', or '=' */
-	double value;
-};
-
 #define JSON_LOADS(str, err_ptr) json_loads((str), 0, (err_ptr))
 
 #ifdef HAVE_LIBCURL

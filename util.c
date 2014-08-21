@@ -41,6 +41,7 @@
 #include "miner.h"
 #include "elist.h"
 #include "compat.h"
+#include "ripemd160.h"
 #include "sha2.h"
 #include "util.h"
 
@@ -1775,7 +1776,8 @@ bool b58enc(char *b58, size_t *b58sz, const unsigned char *bin, size_t binsz)
 	return true;
 }
 
-static bool test_address(char *addr, size_t *addrsz, unsigned char ver, const unsigned char *pkhash)
+/* Caller ensure the pkhash is 20 bytes */
+static bool pubkeyhash_to_address(char *addr, size_t *addrsz, const unsigned char ver, const unsigned char *pkhash)
 {
 	unsigned char buf[25], hret[32];
 
@@ -1785,35 +1787,64 @@ static bool test_address(char *addr, size_t *addrsz, unsigned char ver, const un
 	sha256(hret, 32, hret);
 	memcpy(buf + 21, hret, 4);
 
-	if (b58enc(addr, addrsz, buf, 25) && (*addrsz == 35 || *addrsz == 34)) {
-		b58tobin(buf, addr);
-		return (buf[0] == ver && !memcmp(buf + 1, pkhash, 20));
-	}
-	return false;
+	if (!b58enc(addr, addrsz, buf, 25) || (*addrsz != 35 && *addrsz == 34))
+		return false;
+
+	b58tobin(buf, addr);
+	return (buf[0] == ver && !memcmp(buf + 1, pkhash, 20));
 }
 
-size_t pubkeyhash_to_address(char *out, size_t outsz, const unsigned char *script, size_t scriptsz, bool testnet)
+static bool pubkey_to_address(char *addr, size_t *addrsz, const unsigned char ver, const unsigned char *pubkey, const size_t pksize)
+{
+	uint8_t hret[32];
+
+	sha256(pubkey, pksize, hret);
+	ripemd160(hret, 32, hret);
+
+	return pubkeyhash_to_address(addr, addrsz, ver, hret);
+}
+
+size_t script_to_address(char *out, size_t outsz, const unsigned char *script, size_t scriptsz, bool testnet)
 {
 	char addr[35];
 	size_t size = sizeof(addr);
 	bool bok = false;
 
-	if (scriptsz == 25) {
-		if (script[0] != 0x76 || script[1] != 0xa9 || script[2] != 0x14 || script[23] != 0x88 || script[24] != 0xac)
-			return 0;
-		bok = test_address(addr, &size, testnet ? 0x6f : 0x00, script + 3);
-	} else if (scriptsz == 23) {
-		if (script[0] != 0xa9 || script[1] != 0x14 || script[22] != 0x87)
-			return 0;
-		bok = test_address(addr, &size, testnet ? 0xc4 : 0x05, script + 2);
-	}
+	if (scriptsz == 25 && script[0] == 0x76 && script[1] == 0xa9 && script[2] == 0x14 && script[23] == 0x88 && script[24] == 0xac)
+		bok = pubkeyhash_to_address(addr, &size, testnet ? 0x6f : 0x00, script + 3);
+	else if (scriptsz == 23 && script[0] == 0xa9 && script[1] == 0x14 && script[22] == 0x87)
+		bok = pubkeyhash_to_address(addr, &size, testnet ? 0xc4 : 0x05, script + 2);
+	else if (scriptsz == 66 && (script[0] > 3 && script[0] < 8) && script[65] == 0xac)
+		bok = pubkey_to_address(addr, &size, testnet ? 0x6f : 0x00, script, 65);
+	else if (scriptsz == 34 && (script[0] == 2 || script[0] == 3) && script[33] == 0xac)
+		bok = pubkey_to_address(addr, &size, testnet ? 0x6f : 0x00, script, 33);
 	if (!bok)
 		return 0;
 	if (outsz >= size)
 		strcpy(out, addr);
 	return size;
 }
+/*
+void test_pubkey_to_address()
+{
+	uint8_t pk[66];
+	char addr[35];
 
+	hex2bin(pk, "04ae1a62fe09c5f51b13905f07f06b99a2f7159b2225f374cd378d71302fa28414e7aab37397f554a7df5f142c21c1b7303b8a0626f1baded5c72a704f7e6cd84cac", 66);
+	if (!script_to_address(addr, sizeof(addr), pk, 66, false) || strcmp(addr, "1Q2TWHE3GMdB6BZKafqwxXtWAWgFt5Jvm3")) {
+		fprintf(stderr, "pubkey_to_address failed\n");
+		exit(1);
+	}
+
+	hex2bin(pk, "0411db93e1dcdb8a016b49840f8c53bc1eb68a382e97b1482ecad7b148a6909a5cb2e0eaddfb84ccf9744464f82e160bfa9b8b64f9d4c03f999b8643f656b412a3ac", 66);
+	if (!script_to_address(addr, sizeof(addr), pk, 66, false) || strcmp(addr, "12cbQLTFMXRnSzktFkuoG3eHoMeFtpTu3S")) {
+		fprintf(stderr, "pubkey_to_address failed\n");
+		exit(1);
+	}
+
+	printf("Pubkey To Address OK\n");
+}
+*/
 size_t varint_decode(const unsigned char *p, size_t size, uint64_t *n)
 {
 	if (size > 8 && p[0] == 0xff) {
@@ -1835,28 +1866,13 @@ size_t varint_decode(const unsigned char *p, size_t size, uint64_t *n)
 	return 0;
 }
 
-static inline bool do_compare(double value, struct compare_op *op)
-{
-	switch (op->op) {
-	case '>':
-		return (value > op->value);
-	case '<':
-		return (value < op->value);
-	case '=':
-		return (value == op->value);
-	default:
-		return true;
-	}
-}
-
 bool check_coinbase(const unsigned char *coinbase, size_t cbsize, struct coinbase_param *cb_param)
 {
-	int i;
-	size_t pos, target_script_len;
+	int i, addr_c = 0;
+	size_t pos;
 	uint64_t len, total, target, amount, curr_pk_script_len;
-	bool on_testnet = false, found_target = false;
-	unsigned char target_script[25];
-	char addr[35];
+	bool on_testnet = false, found_target = false, ret = false;
+	char **addr_v = NULL;
 
 	if (cbsize < 62) { /* Smallest possible length */
 		applog(LOG_ERR, "Coinbase check: invalid length -- %zu", cbsize);
@@ -1879,11 +1895,41 @@ bool check_coinbase(const unsigned char *coinbase, size_t cbsize, struct coinbas
 	if (cbsize <= pos) {
 incomplete_cb:
 		applog(LOG_ERR, "Coinbase check: incomplete coinbase for payout check");
-		return false;
+		goto out;
 	}
 
 	if (cb_param && cb_param->addr) {
-		target_script_len = address_to_pubkeyhash(target_script, cb_param->addr);
+		unsigned char target_script[25];
+		int count = 4;
+
+		char *p = strdup(cb_param->addr), *q;
+		addr_v = malloc(count * sizeof(char *));
+		if (unlikely(!p || !addr_v))
+out_of_memory:
+			quithere(1, "Failed to clone target address during coinbase check");
+
+		for (addr_c = 0; p; ++addr_c) {
+			if (addr_c == count) {
+				count *= 2;
+				addr_v = realloc(addr_v, count * sizeof(char *));
+				if (unlikely(!addr_v))
+					goto out_of_memory;
+			}
+			addr_v[addr_c] = strsep(&p, "+,");
+			if (!address_to_pubkeyhash(target_script, addr_v[addr_c])) {
+				applog(LOG_ERR, "Coinbase check: against an invalid addr: %s, ignoring the whole list", addr_v[addr_c]);
+				free(addr_v[addr_c = 0]);
+				free(addr_v);
+				break;
+			}
+		}
+
+		/* NOTE: 'x' is a new prefix which leads both mainnet and testnet address, we would
+		 * need support it later, but now leave the code just so.
+		 *
+		 * Regarding details of address prefix 'x', check the below URL:
+		 * https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki#Serialization_format
+		 */
 		on_testnet = cb_param->addr[0] != '1' && cb_param->addr[0] != '3' && cb_param->addr[0] != 'x';
 	}
 
@@ -1895,6 +1941,8 @@ incomplete_cb:
 	pos += i;
 
 	while (len-- > 0) {
+		char addr[35];
+
 		if (cbsize <= pos + 8)
 			goto incomplete_cb;
 
@@ -1908,15 +1956,13 @@ incomplete_cb:
 			goto incomplete_cb;
 		pos += i;
 
-		i = pubkeyhash_to_address(addr, sizeof(addr), coinbase + pos, curr_pk_script_len, on_testnet);
+		i = script_to_address(addr, sizeof(addr), coinbase + pos, curr_pk_script_len, on_testnet);
 		if (i && i <= sizeof(addr)) { /* So this script is to payout to an valid address */
-			if (cb_param && cb_param->addr) {
-				i = (target_script_len == curr_pk_script_len &&
-					!memcmp(target_script, coinbase + pos, curr_pk_script_len));
-				if (i) {
-					found_target = true;
-					target += amount;
-				}
+			for (i = 0; i < addr_c && strcmp(addr, addr_v[i]); ++i);
+			if (addr_c && i < addr_c) {
+				i = 1;
+				found_target = true;
+				target += amount;
 			} else
 				i = 0;
 			if (opt_debug)
@@ -1936,30 +1982,42 @@ incomplete_cb:
 
 		pos += curr_pk_script_len;
 	}
-	if (cb_param && cb_param->cb_total_op.op && !do_compare(total, &cb_param->cb_total_op)) {
-		applog(LOG_ERR, "Coinbase check: lopsided total output amount = %ld, expecting %c %ld",
-			total, cb_param->cb_total_op.op, (uint64_t)cb_param->cb_total_op.value);
-		return false;
+	if (cb_param && total < cb_param->cb_total) {
+		applog(LOG_ERR, "Coinbase check: lopsided total output amount = %lu, expecting >=%ld",
+			total, cb_param->cb_total);
+		goto out;
 	}
-	if (cb_param && cb_param->cb_percent_op.op && !(total && do_compare((double)target / total, &cb_param->cb_percent_op))) {
-		applog(LOG_ERR, "Coinbase check: lopsided target/total = %g(%ld/%ld), expecting %c %g",
-			(total ? (double)target / total : 0), target, total, cb_param->cb_percent_op.op, cb_param->cb_percent_op.value);
-		return false;
-	} else if (cb_param && cb_param->addr && !found_target) {
-		applog(LOG_ERR, "Coinbase check: not found target %s", cb_param->addr);
-		return false;
+	if (addr_c) {
+		if (cb_param->cb_percent && !(total && (float)((double)target / total) >= cb_param->cb_percent)) {
+			applog(LOG_ERR, "Coinbase check: lopsided target/total = %g(%ld/%ld), expecting >=%g",
+				(total ? (double)target / total : 0), target, total, cb_param->cb_percent);
+			goto out;
+		} else if (!found_target) {
+			applog(LOG_ERR, "Coinbase check: not found any target address");
+			goto out;
+		}
 	}
 
 	if (cbsize < pos + 4) {
 		applog(LOG_ERR, "Coinbase check: No room for locktime");
-		return false;
+		goto out;
 	}
 	pos += 4;
 
 	if (opt_debug)
-		applog(LOG_DEBUG, "Coinbase: (size, pos, target, total) = (%zu, %zu, %ld, %ld)", cbsize, pos, target, total);
+		applog(LOG_DEBUG, "Coinbase: (size, pos, addr_count, target, total) = (%lu, %lu, %d, %lu, %lu)",
+			cbsize, pos, addr_c, target, total);
 
-	return true;
+	ret = true;
+
+out:
+
+	if (addr_c) {
+		free(addr_v[0]);
+		free(addr_v);
+	}
+
+	return ret;
 }
 
 static char *blank_merkle = "0000000000000000000000000000000000000000000000000000000000000000";
