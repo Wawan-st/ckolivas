@@ -673,10 +673,6 @@ struct pool *add_pool(void)
 	pool->quota = 1;
 	adjust_quota_gcd();
 
-	pool->cb_param.addr = NULL;
-	pool->cb_param.cb_total = 0;
-	pool->cb_param.cb_percent = 0;
-
 	return pool;
 }
 
@@ -881,7 +877,7 @@ static char *set_cbaddr(const char *arg)
 	return NULL;
 }
 
-static char *set_cbtotal_op(const char *arg)
+static char *set_cbtotal(const char *arg)
 {
 	struct pool *pool;
 
@@ -897,7 +893,7 @@ static char *set_cbtotal_op(const char *arg)
 	return NULL;
 }
 
-static char *set_cbperc_op(const char *arg)
+static char *set_cbperc(const char *arg)
 {
 	struct pool *pool;
 
@@ -1595,12 +1591,12 @@ static struct opt_table opt_config_table[] = {
 			"Display extra work time debug information"),
 	OPT_WITH_ARG("--cbaddr",
 			set_cbaddr, NULL, &opt_set_null,
-			"Bitcoin address (list) expected in coinbase payout list"),
+			"A list of address to check against in coinbase payout list from pool"),
 	OPT_WITH_ARG("--cbtotal",
-			set_cbtotal_op, NULL, &opt_set_null,
+			set_cbtotal, NULL, &opt_set_null,
 			"The least total payout amount expected in coinbase"),
 	OPT_WITH_ARG("--cbperc",
-			set_cbperc_op, NULL, &opt_set_null,
+			set_cbperc, NULL, &opt_set_null,
 			"The least benefit percentage expected for the specified cbaddr(s)"),
 	OPT_ENDTABLE
 };
