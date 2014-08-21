@@ -651,6 +651,14 @@ struct pool *add_pool(void)
 {
 	struct pool *pool;
 
+	/* skip coinbase check param for previous pool */
+	if (total_cbaddrs < total_pools)
+		total_cbaddrs = total_pools;
+	if (total_cbtotals < total_pools)
+		total_cbtotals = total_pools;
+	if (total_cbpercs < total_pools)
+		total_cbpercs = total_pools;
+
 	pool = calloc(sizeof(struct pool), 1);
 	if (!pool)
 		quit(1, "Failed to malloc pool in add_pool");
