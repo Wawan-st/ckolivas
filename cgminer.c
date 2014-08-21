@@ -354,7 +354,7 @@ static struct pool *currentpool = NULL;
 int total_pools, enabled_pools;
 enum pool_strategy pool_strategy = POOL_FAILOVER;
 int opt_rotate_period;
-static int total_urls, total_users, total_passes, total_userpasses, total_cbaddrs, total_cbtotals, total_cbpercs;
+static int total_urls, total_users, total_passes, total_userpasses;
 
 static
 #ifndef HAVE_CURSES
@@ -651,14 +651,6 @@ struct pool *add_pool(void)
 {
 	struct pool *pool;
 
-	/* skip coinbase check param for previous pool */
-	if (total_cbaddrs < total_pools)
-		total_cbaddrs = total_pools;
-	if (total_cbtotals < total_pools)
-		total_cbtotals = total_pools;
-	if (total_cbpercs < total_pools)
-		total_cbpercs = total_pools;
-
 	pool = calloc(sizeof(struct pool), 1);
 	if (!pool)
 		quit(1, "Failed to malloc pool in add_pool");
@@ -875,11 +867,10 @@ static char *set_cbaddr(const char *arg)
 {
 	struct pool *pool;
 
-	total_cbaddrs++;
-	if (total_cbaddrs > total_pools)
-		add_pool();
+	if (!total_pools)
+		return "Define pool first, then set --cbaddr argument";
 
-	pool = pools[total_cbaddrs - 1];
+	pool = pools[total_pools - 1];
 	opt_set_charp(arg, &pool->cb_param.addr);
 
 	return NULL;
@@ -889,11 +880,10 @@ static char *set_cbtotal(const char *arg)
 {
 	struct pool *pool;
 
-	total_cbtotals++;
-	if (total_cbtotals > total_pools)
-		add_pool();
+	if (!total_pools)
+		return "Define pool first, then set --cbtotal argument";
 
-	pool = pools[total_cbtotals - 1];
+	pool = pools[total_pools - 1];
 	pool->cb_param.cb_total = atoll(arg);
 	if (pool->cb_param.cb_total < 0)
 		return "The total payout amount in coinbase should be greater than 0";
@@ -905,11 +895,13 @@ static char *set_cbperc(const char *arg)
 {
 	struct pool *pool;
 
-	total_cbpercs++;
-	if (total_cbpercs > total_pools)
-		add_pool();
+	if (!total_pools)
+		return "Define pool first, then set --cbperc argument";
 
-	pool = pools[total_cbpercs - 1];
+	pool = pools[total_pools - 1];
+	if (!pool->cb_param.addr)
+		return "Set --cbaddr before --cbperc argument";
+
 	pool->cb_param.cb_percent = atof(arg);
 	if (pool->cb_param.cb_percent < 0.0 || pool->cb_param.cb_percent > 1.0)
 		return "The percentage should be between 0 and 1";
@@ -1599,13 +1591,13 @@ static struct opt_table opt_config_table[] = {
 			"Display extra work time debug information"),
 	OPT_WITH_ARG("--cbaddr",
 			set_cbaddr, NULL, &opt_set_null,
-			"A list of address to check against in coinbase payout list from pool"),
+			"A list of address to check against in coinbase payout list from the previous-defined pool"),
 	OPT_WITH_ARG("--cbtotal",
 			set_cbtotal, NULL, &opt_set_null,
-			"The least total payout amount expected in coinbase"),
+			"The least total payout amount expected in coinbase from the previous-defined pool"),
 	OPT_WITH_ARG("--cbperc",
 			set_cbperc, NULL, &opt_set_null,
-			"The least benefit percentage expected for the specified cbaddr(s)"),
+			"The least benefit percentage expected for the previous-defined cbaddr(s)"),
 	OPT_ENDTABLE
 };
 
