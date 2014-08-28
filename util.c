@@ -1786,7 +1786,7 @@ static bool pubkeyhash_to_address(char *addr, size_t *addrsz, const unsigned cha
 	sha256(hret, 32, hret);
 	memcpy(buf + 21, hret, 4);
 
-	if (!b58enc(addr, addrsz, buf, 25) || (*addrsz != 35 && *addrsz == 34))
+	if (!b58enc(addr, addrsz, buf, 25) || (*addrsz != 35 && *addrsz != 34))
 		return false;
 
 	b58tobin(buf, addr);
