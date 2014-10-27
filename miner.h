@@ -247,7 +247,8 @@ static inline int fsync (int fd)
 	DRIVER_ADD_COMMAND(bab) \
 	DRIVER_ADD_COMMAND(minion) \
 	DRIVER_ADD_COMMAND(sp10) \
-	DRIVER_ADD_COMMAND(sp30)
+	DRIVER_ADD_COMMAND(sp30) \
+	DRIVER_ADD_COMMAND(gridseed)
 
 #define DRIVER_PARSE_COMMANDS(DRIVER_ADD_COMMAND) \
 	FPGA_PARSE_COMMANDS(DRIVER_ADD_COMMAND) \
@@ -1055,6 +1056,11 @@ extern cgsem_t usb_resource_sem;
 #ifdef USE_BITFORCE
 extern bool opt_bfl_noncerange;
 #endif
+
+#ifdef USE_GRIDSEED
+extern char *opt_gridseed_options;
+#endif
+
 extern int swork_id;
 
 #if LOCK_TRACKING
