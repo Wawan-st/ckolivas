@@ -104,6 +104,10 @@ char *curly = ":D";
 #include "driver-bitmain.h"
 #endif
 
+#ifdef USE_GRIDSEED
+#include "driver-gridseed.h"
+#endif
+
 #if defined(USE_BITFORCE) || defined(USE_ICARUS) || defined(USE_AVALON) || defined(USE_AVALON2) || defined(USE_MODMINER)
 #	define USE_FPGA
 #endif
@@ -277,6 +281,11 @@ int opt_minion_spisleep = 200;
 int opt_minion_spiusec;
 char *opt_minion_temp;
 #endif
+
+#ifdef USE_GRIDSEED
+char *opt_gridseed_options = NULL;
+#endif
+
 
 #ifdef USE_USBUTILS
 char *opt_usb_select = NULL;
@@ -1083,6 +1092,15 @@ static char *set_null(const char __maybe_unused *arg)
 	return NULL;
 }
 
+#ifdef USE_GRIDSEED
+static char *set_gridseed_options(const char *arg)
+{
+	opt_set_charp(arg, &opt_gridseed_options);
+
+	return NULL;
+}
+#endif
+
 /* These options are available from config file or commandline */
 static struct opt_table opt_config_table[] = {
 #ifdef USE_ICARUS
@@ -1352,6 +1370,13 @@ static struct opt_table opt_config_table[] = {
 		       set_hashratio_freq, NULL, &opt_hashratio_freq,
 		       "Set the hashratio clock frequency"),
 #endif
+
+#ifdef USE_GRIDSEED
+	OPT_WITH_ARG("--gridseed-options",
+		set_gridseed_options, NULL, NULL, 
+		opt_hidden),
+#endif
+
 	OPT_WITH_ARG("--hotplug",
 		     set_int_0_to_9999, NULL, &hotplug_time,
 #ifdef USE_USBUTILS
@@ -1805,6 +1830,9 @@ static char *opt_verusage_and_exit(const char *extra)
 #endif
 #ifdef USE_SP30
         "sp30 "
+#endif
+#ifdef USE_GRIDSEED
+		"GridSeed "
 #endif
 
 		"mining support.\n"
@@ -9518,6 +9546,12 @@ int main(int argc, char *argv[])
 
 	/* Use the DRIVER_PARSE_COMMANDS macro to fill all the device_drvs */
 	DRIVER_PARSE_COMMANDS(DRIVER_FILL_DEVICE_DRV)
+
+
+#ifdef USE_GRIDSEED
+	gridseed_drv.drv_detect(false); // kije 10-27-2014: only if scrypt?
+#endif
+
 
 	/* Use the DRIVER_PARSE_COMMANDS macro to detect all devices */
 	DRIVER_PARSE_COMMANDS(DRIVER_DRV_DETECT_ALL)
