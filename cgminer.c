@@ -162,7 +162,6 @@ int opt_queue = 1;
 static int max_queue = 1;
 int opt_scantime = -1;
 int opt_expiry = 120;
-static const bool opt_time = true;
 unsigned long long global_hashrate;
 unsigned long global_quota_gcd = 1;
 time_t last_getwork;
@@ -874,6 +873,52 @@ static char *set_url(char *arg)
 	return NULL;
 }
 
+static char *set_cbaddr(const char *arg)
+{
+	struct pool *pool;
+
+	if (!total_pools)
+		return "Define pool first, then set --cbaddr argument";
+
+	pool = pools[total_pools - 1];
+	opt_set_charp(arg, &pool->cb_param.addr);
+
+	return NULL;
+}
+
+static char *set_cbtotal(const char *arg)
+{
+	struct pool *pool;
+
+	if (!total_pools)
+		return "Define pool first, then set --cbtotal argument";
+
+	pool = pools[total_pools - 1];
+	pool->cb_param.cb_total = atoll(arg);
+	if (pool->cb_param.cb_total < 0)
+		return "The total payout amount in coinbase should be greater than 0";
+
+	return NULL;
+}
+
+static char *set_cbperc(const char *arg)
+{
+	struct pool *pool;
+
+	if (!total_pools)
+		return "Define pool first, then set --cbperc argument";
+
+	pool = pools[total_pools - 1];
+	if (!pool->cb_param.addr)
+		return "Set --cbaddr before --cbperc argument";
+
+	pool->cb_param.cb_percent = atof(arg);
+	if (pool->cb_param.cb_percent < 0.0 || pool->cb_param.cb_percent > 1.0)
+		return "The percentage should be between 0 and 1";
+
+	return NULL;
+}
+
 static char *set_quota(char *arg)
 {
 	char *semicolon = strchr(arg, ';'), *url;
@@ -1574,6 +1619,15 @@ static struct opt_table opt_config_table[] = {
 	OPT_WITHOUT_ARG("--worktime",
 			opt_set_bool, &opt_worktime,
 			"Display extra work time debug information"),
+	OPT_WITH_ARG("--cbaddr",
+			set_cbaddr, NULL, &opt_set_null,
+			"A list of address to check against in coinbase payout list from the previous-defined pool"),
+	OPT_WITH_ARG("--cbtotal",
+			set_cbtotal, NULL, &opt_set_null,
+			"The least total payout amount expected in coinbase from the previous-defined pool"),
+	OPT_WITH_ARG("--cbperc",
+			set_cbperc, NULL, &opt_set_null,
+			"The least benefit percentage expected for the previous-defined cbaddr(s)"),
 	OPT_ENDTABLE
 };
 
@@ -2059,13 +2113,15 @@ static void gen_gbt_work(struct pool *pool, struct work *work)
 	cgtime(&work->tv_staged);
 }
 
+extern bool check_coinbase(const unsigned char *coinbase, size_t cbsize, struct coinbase_param *cb_param);
+
 static bool gbt_decode(struct pool *pool, json_t *res_val)
 {
 	const char *previousblockhash;
 	const char *target;
 	const char *coinbasetxn;
 	const char *longpollid;
-	unsigned char hash_swap[32];
+	unsigned char hash_swap[32], *coinbase;
 	int expires;
 	int version;
 	int curtime;
@@ -2093,6 +2149,28 @@ static bool gbt_decode(struct pool *pool, json_t *res_val)
 		return false;
 	}
 
+	cbt_len = strlen(coinbasetxn) / 2;
+	/* We add 8 bytes of extra data corresponding to nonce2 */
+	cal_len = cbt_len + 8;
+	align_len(&cal_len);
+	coinbase = calloc(cal_len, 1);
+	if (unlikely(coinbase))
+		quit(1, "Failed to calloc coinbase in gbt_decode");
+	hex2bin(coinbase, coinbasetxn, 42);
+	extra_len = (uint8_t *)(coinbase + 41);
+	orig_len = *extra_len;
+	hex2bin(coinbase + 42, coinbasetxn + 84, orig_len);
+	*extra_len += 8;
+	hex2bin(coinbase + 42 + *extra_len, coinbasetxn + 84 + (orig_len * 2),
+		cbt_len - orig_len - 42);
+	if (!check_coinbase(coinbase, cbt_len + 8, &pool->cb_param)) {
+		free(coinbase);
+		/* Disable it for around 5 minutes */
+		disable_pool(pool, POOL_MISBEHAVING, 600);
+		applog(LOG_ERR, "Mark pool %d as misbehaving for broken coinbase from GBT", pool->pool_no);
+		return false;
+	}
+
 	applog(LOG_DEBUG, "previousblockhash: %s", previousblockhash);
 	applog(LOG_DEBUG, "target: %s", target);
 	applog(LOG_DEBUG, "coinbasetxn: %s", coinbasetxn);
@@ -2108,23 +2186,10 @@ static bool gbt_decode(struct pool *pool, json_t *res_val)
 	cg_wlock(&pool->gbt_lock);
 	free(pool->coinbasetxn);
 	pool->coinbasetxn = strdup(coinbasetxn);
-	cbt_len = strlen(pool->coinbasetxn) / 2;
-	/* We add 8 bytes of extra data corresponding to nonce2 */
 	pool->n2size = 8;
 	pool->coinbase_len = cbt_len + pool->n2size;
-	cal_len = pool->coinbase_len + 1;
-	align_len(&cal_len);
 	free(pool->coinbase);
-	pool->coinbase = calloc(cal_len, 1);
-	if (unlikely(!pool->coinbase))
-		quit(1, "Failed to calloc pool coinbase in gbt_decode");
-	hex2bin(pool->coinbase, pool->coinbasetxn, 42);
-	extra_len = (uint8_t *)(pool->coinbase + 41);
-	orig_len = *extra_len;
-	hex2bin(pool->coinbase + 42, pool->coinbasetxn + 84, orig_len);
-	*extra_len += pool->n2size;
-	hex2bin(pool->coinbase + 42 + *extra_len, pool->coinbasetxn + 84 + (orig_len * 2),
-		cbt_len - orig_len - 42);
+	pool->coinbase = coinbase;
 	pool->nonce2_offset = orig_len + 42;
 
 	free(pool->longpollid);
@@ -2980,25 +3045,35 @@ void logwin_update(void)
 static void enable_pool(struct pool *pool)
 {
 	if (pool->enabled != POOL_ENABLED) {
+		mutex_lock(&lp_lock);
+
 		enabled_pools++;
 		pool->enabled = POOL_ENABLED;
+
+		pthread_cond_broadcast(&lp_cond);
+
+		mutex_unlock(&lp_lock);
 	}
 }
 
-#ifdef HAVE_CURSES
-static void disable_pool(struct pool *pool)
+void disable_pool(struct pool *pool, enum pool_enable enable_status, unsigned int reset_interval)
 {
-	if (pool->enabled == POOL_ENABLED)
-		enabled_pools--;
-	pool->enabled = POOL_DISABLED;
-}
-#endif
+	if (pool->enabled == POOL_DISABLED)
+		return;
 
-static void reject_pool(struct pool *pool)
-{
+	mutex_lock(&lp_lock);
+
 	if (pool->enabled == POOL_ENABLED)
 		enabled_pools--;
-	pool->enabled = POOL_REJECTING;
+
+	pool->enabled = enable_status;
+	if (enable_status != POOL_DISABLED)
+		pool->status_reset_time = time(NULL) + reset_interval;
+
+	mutex_unlock(&lp_lock);
+
+	if (pool == current_pool())
+		switch_pools(NULL);
 }
 
 static void restart_threads(void);
@@ -3126,11 +3201,10 @@ share_result(json_t *val, json_t *res, json_t *err, const struct work *work,
 			double utility = total_accepted / total_secs * 60;
 
 			if (pool->seq_rejects > utility * 3) {
+				/* Disable for around 1 minute */
+				disable_pool(pool, POOL_REJECTING, 60);
 				applog(LOG_WARNING, "Pool %d rejected %d sequential shares, disabling!",
 				       pool->pool_no, pool->seq_rejects);
-				reject_pool(pool);
-				if (pool == current_pool())
-					switch_pools(NULL);
 				pool->seq_rejects = 0;
 			}
 		}
@@ -3412,12 +3486,12 @@ static bool get_upstream_work(struct work *work, CURL *curl)
 }
 #endif /* HAVE_LIBCURL */
 
+static bool pool_unusable(struct pool *pool);
+
 /* Specifies whether we can use this pool for work or not. */
 static bool pool_unworkable(struct pool *pool)
 {
-	if (pool->idle)
-		return true;
-	if (pool->enabled != POOL_ENABLED)
+	if (pool_unusable(pool))
 		return true;
 	if (pool->has_stratum && !pool->stratum_active)
 		return true;
@@ -3450,7 +3524,6 @@ static struct pool *select_balanced(struct pool *cp)
 }
 
 static struct pool *priority_pool(int choice);
-static bool pool_unusable(struct pool *pool);
 
 /* Select any active pool in a rotating fashion when loadbalance is chosen if
  * it has any quota left. */
@@ -4446,8 +4519,12 @@ static bool pool_unusable(struct pool *pool)
 {
 	if (pool->idle)
 		return true;
-	if (pool->enabled != POOL_ENABLED)
-		return true;
+	if (pool->enabled != POOL_ENABLED) {
+		if (pool->enabled != POOL_DISABLED && time(NULL) > pool->status_reset_time)
+			enable_pool(pool);
+		else
+			return true;
+	}
 	return false;
 }
 
@@ -4528,7 +4605,6 @@ void switch_pools(struct pool *selected)
 	mutex_lock(&lp_lock);
 	pthread_cond_broadcast(&lp_cond);
 	mutex_unlock(&lp_lock);
-
 }
 
 void _discard_work(struct work *work)
@@ -4940,6 +5016,9 @@ void remove_pool(struct pool *pool)
 	int i, last_pool = total_pools - 1;
 	struct pool *other;
 
+	/* Disable first */
+	disable_pool(pool, POOL_DISABLED, 0);
+
 	/* Boost priority of any lower prio than this one */
 	for (i = 0; i < total_pools; i++) {
 		other = pools[i];
@@ -5241,6 +5320,9 @@ updated:
 			case POOL_REJECTING:
 				wlogprint("Rejecting ");
 				break;
+			case POOL_MISBEHAVING:
+				wlogprint("Misbehaving ");
+				break;
 		}
 		wlogprint("%s Quota %d Prio %d: %s  User:%s\n",
 			pool->idle? "Dead" : "Alive",
@@ -5281,7 +5363,6 @@ retry:
 			wlogprint("Unable to remove pool due to activity\n");
 			goto retry;
 		}
-		disable_pool(pool);
 		remove_pool(pool);
 		goto updated;
 	} else if (!strncasecmp(&input, "s", 1)) {
@@ -5305,9 +5386,7 @@ retry:
 			goto retry;
 		}
 		pool = pools[selected];
-		disable_pool(pool);
-		if (pool == current_pool())
-			switch_pools(NULL);
+		disable_pool(pool, POOL_DISABLED, 0);
 		goto updated;
 	} else if (!strncasecmp(&input, "e", 1)) {
 		selected = curses_int("Select pool number");
@@ -6474,8 +6553,8 @@ static void __setup_gbt_solo(struct pool *pool)
 {
 	cg_wlock(&pool->gbt_lock);
 	memcpy(pool->coinbase, scriptsig_header_bin, 41);
-	pool->coinbase[41 + pool->n1_len + 4 + 1 + 8] = 25;
-	memcpy(pool->coinbase + 41 + pool->n1_len + 4 + 1 + 8 + 1, pool->script_pubkey, 25);
+	pool->coinbase[41 + pool->n1_len + 4 + 1 + 8] = pool->script_pubkey_len;
+	memcpy(pool->coinbase + 41 + pool->n1_len + 4 + 1 + 8 + 1, pool->script_pubkey, pool->script_pubkey_len);
 	cg_wunlock(&pool->gbt_lock);
 }
 
@@ -6508,7 +6587,7 @@ static bool setup_gbt_solo(CURL *curl, struct pool *pool)
 	}
 	applog(LOG_NOTICE, "Solo mining to valid address: %s", opt_btc_address);
 	ret = true;
-	address_to_pubkeyhash(pool->script_pubkey, opt_btc_address);
+	pool->script_pubkey_len = address_to_pubkeyhash(pool->script_pubkey, opt_btc_address);
 	hex2bin(scriptsig_header_bin, scriptsig_header, 41);
 	__setup_gbt_solo(pool);
 
@@ -8009,7 +8088,7 @@ static struct pool *select_longpoll_pool(struct pool *cp)
  */
 static void wait_lpcurrent(struct pool *pool)
 {
-	while (!cnx_needed(pool) && (pool->enabled == POOL_DISABLED ||
+	while (!cnx_needed(pool) && (pool->enabled != POOL_ENABLED ||
 	       (pool != current_pool() && pool_strategy != POOL_LOADBALANCE &&
 	       pool_strategy != POOL_BALANCE))) {
 		mutex_lock(&lp_lock);
