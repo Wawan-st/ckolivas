@@ -8298,6 +8298,7 @@ static void *watchdog_thread(void __maybe_unused *userdata)
 		if (curses_active_locked()) {
 			struct cgpu_info *cgpu;
 			int count;
+			bool test;
 
 			change_logwinsize();
 			curses_print_status();
@@ -8305,10 +8306,11 @@ static void *watchdog_thread(void __maybe_unused *userdata)
 			for (i = 0; i < total_devices; i++) {
 				cgpu = get_devices(i);
 #ifndef USE_USBUTILS
-				if (cgpu)
+				test = cgpu;
 #else
-				if (cgpu && !cgpu->usbinfo.nodev)
+				test = cgpu && !cgpu->usbinfo.nodev;
 #endif
+				if (test)
 					curses_print_devstatus(cgpu, i, count++);
 			}
 #ifdef USE_USBUTILS
