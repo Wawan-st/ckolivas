@@ -121,6 +121,10 @@ char *curly = ":D";
 #	define USE_FPGA
 #endif
 
+#ifdef USE_GEKKO
+#	define USE_FPGA
+#endif
+
 struct strategies strategies[] = {
 	{ "Failover" },
 	{ "Round Robin" },
@@ -229,6 +233,14 @@ char *opt_icarus_timing = NULL;
 float opt_anu_freq = 250;
 float opt_au3_freq = 225;
 int opt_au3_volt = 775;
+float opt_rock_freq = 270;
+#endif
+#ifdef USE_GEKKO
+char *opt_gekko_options = NULL;
+char *opt_gekko_timing = NULL;
+float opt_anu_freq = 250;
+float opt_compac_freq = 125;
+
 float opt_rock_freq = 270;
 #endif
 bool opt_worktime;
@@ -1138,6 +1150,19 @@ static char *set_float_100_to_250(const char *arg, float *i)
 	return NULL;
 }
 
+static char *set_float_100_to_500(const char *arg, float *i)
+{
+	char *err = opt_set_floatval(arg, i);
+
+	if (err)
+		return err;
+
+	if (*i < 100 || *i > 500)
+		return "Value out of range";
+
+	return NULL;
+}
+
 static char *set_null(const char __maybe_unused *arg)
 {
 	return NULL;
@@ -1193,6 +1218,12 @@ static struct opt_table opt_config_table[] = {
 	OPT_WITH_ARG("--au3-volt",
 		     set_int_0_to_9999, &opt_show_intval, &opt_au3_volt,
 		     "Set AntminerU3 voltage in mv, range 725-850, 0 to not set"),
+#endif
+#ifdef USE_GEKKO
+	OPT_WITH_ARG("--compac-freq",
+		     set_float_100_to_500, &opt_show_floatval, &opt_compac_freq,
+		     "Set GekkoScience Compac frequency in MHz, range 100-500"),
+
 #endif
 #ifdef USE_AVALON
 	OPT_WITHOUT_ARG("--avalon-auto",
@@ -1542,6 +1573,14 @@ static struct opt_table opt_config_table[] = {
 		     opt_hidden),
 	OPT_WITH_ARG("--icarus-timing",
 		     opt_set_charp, NULL, &opt_icarus_timing,
+		     opt_hidden),
+#endif
+#ifdef USE_GEKKO
+	OPT_WITH_ARG("--gekko-options",
+		     opt_set_charp, NULL, &opt_gekko_options,
+		     opt_hidden),
+	OPT_WITH_ARG("--gekko-timing",
+		     opt_set_charp, NULL, &opt_gekko_timing,
 		     opt_hidden),
 #endif
 #if defined(HAVE_MODMINER)
@@ -1964,6 +2003,9 @@ static char *opt_verusage_and_exit(const char *extra)
 #endif
 #ifdef USE_ICARUS
 		"icarus "
+#endif
+#ifdef USE_GEKKO
+		"gekko "
 #endif
 #ifdef USE_KLONDIKE
 		"klondike "
@@ -9125,6 +9167,19 @@ static void adjust_mostdevs(void)
 
 #ifdef USE_ICARUS
 bool icarus_get_device_id(struct cgpu_info *cgpu)
+{
+	static struct _cgpu_devid_counter *devids = NULL;
+	struct _cgpu_devid_counter *d;
+
+	HASH_FIND_STR(devids, cgpu->drv->name, d);
+	if (d)
+		return (d->lastid + 1);
+	else
+		return 0;
+}
+#endif
+#ifdef USE_GEKKO
+bool gekko_get_device_id(struct cgpu_info *cgpu)
 {
 	static struct _cgpu_devid_counter *devids = NULL;
 	struct _cgpu_devid_counter *d;

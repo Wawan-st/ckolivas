@@ -31,7 +31,8 @@
 	defined(USE_KNC) || defined(USE_BAB) || defined(USE_DRILLBIT) || \
 	defined(USE_MINION) || defined(USE_COINTERRA) || defined(USE_BITMINE_A1) || \
 	defined(USE_ANT_S1) || defined(USE_ANT_S2) || defined(USE_ANT_S3) || defined(USE_SP10) || \
-	defined(USE_SP30) || defined(USE_ICARUS) || defined(USE_HASHRATIO) || defined(USE_AVALON_MINER)
+	defined(USE_SP30) || defined(USE_ICARUS) || defined(USE_HASHRATIO) || defined(USE_AVALON_MINER) || \
+	defined(USE_GEKKO)
 #define HAVE_AN_ASIC 1
 #endif
 
@@ -201,6 +202,9 @@ static const char *DEVICECODE = ""
 #endif
 #ifdef USE_ICARUS
 			"ICA "
+#endif
+#ifdef USE_GEKKO
+			"Gek "
 #endif
 #ifdef USE_KNC
 			"KnC "

@@ -59,6 +59,7 @@ static cgtimer_t usb11_cgt;
 #define BITFURY_TIMEOUT_MS 999
 #define DRILLBIT_TIMEOUT_MS 999
 #define ICARUS_TIMEOUT_MS 999
+#define GEKKO_TIMEOUT_MS 999
 
 // There is no windows version
 #define ANT_S1_TIMEOUT_MS 200
@@ -333,6 +334,82 @@ static struct usb_intinfo kli_ints[] = {
 #endif
 
 #ifdef USE_ICARUS
+static struct usb_epinfo ica_epinfos[] = {
+	{ LIBUSB_TRANSFER_TYPE_BULK,	64,	EPI(3), 0, 0 },
+	{ LIBUSB_TRANSFER_TYPE_BULK,	64,	EPO(2), 0, 0 }
+};
+
+static struct usb_intinfo ica_ints[] = {
+	USB_EPS(0, ica_epinfos)
+};
+
+static struct usb_epinfo ica1_epinfos0[] = {
+	{ LIBUSB_TRANSFER_TYPE_INTERRUPT,	16,	EPI(0x82), 0, 0 }
+};
+
+static struct usb_epinfo ica1_epinfos1[] = {
+	{ LIBUSB_TRANSFER_TYPE_BULK,	64,	EPI(0x81), 0, 0 },
+	{ LIBUSB_TRANSFER_TYPE_BULK,	64,	EPO(0x01), 0, 0 }
+};
+
+static struct usb_intinfo ica1_ints[] = {
+	USB_EPS(1, ica1_epinfos1),
+	USB_EPS(0, ica1_epinfos0)
+};
+
+static struct usb_epinfo amu_epinfos[] = {
+	{ LIBUSB_TRANSFER_TYPE_BULK,	64,	EPI(1), 0, 0 },
+	{ LIBUSB_TRANSFER_TYPE_BULK,	64,	EPO(1), 0, 0 }
+};
+
+static struct usb_intinfo amu_ints[] = {
+	USB_EPS(0, amu_epinfos)
+};
+
+static struct usb_epinfo llt_epinfos[] = {
+	{ LIBUSB_TRANSFER_TYPE_BULK,	64,	EPI(1), 0, 0 },
+	{ LIBUSB_TRANSFER_TYPE_BULK,	64,	EPO(2), 0, 0 }
+};
+
+static struct usb_intinfo llt_ints[] = {
+	USB_EPS(0, llt_epinfos)
+};
+
+static struct usb_epinfo cmr1_epinfos[] = {
+	{ LIBUSB_TRANSFER_TYPE_BULK,	64,	EPI(1), 0, 0 },
+	{ LIBUSB_TRANSFER_TYPE_BULK,	64,	EPO(2), 0, 0 }
+};
+
+static struct usb_intinfo cmr1_ints[] = {
+	USB_EPS(0, cmr1_epinfos)
+};
+
+static struct usb_epinfo cmr2_epinfos0[] = {
+	{ LIBUSB_TRANSFER_TYPE_BULK,	64,	EPI(1), 0, 0 },
+	{ LIBUSB_TRANSFER_TYPE_BULK,	64,	EPO(2), 0, 0 }
+};
+static struct usb_epinfo cmr2_epinfos1[] = {
+	{ LIBUSB_TRANSFER_TYPE_BULK,	64,	EPI(3), 0, 0 },
+	{ LIBUSB_TRANSFER_TYPE_BULK,	64,	EPO(4), 0, 0 },
+};
+static struct usb_epinfo cmr2_epinfos2[] = {
+	{ LIBUSB_TRANSFER_TYPE_BULK,	64,	EPI(5), 0, 0 },
+	{ LIBUSB_TRANSFER_TYPE_BULK,	64,	EPO(6), 0, 0 },
+};
+static struct usb_epinfo cmr2_epinfos3[] = {
+	{ LIBUSB_TRANSFER_TYPE_BULK,	64,	EPI(7), 0, 0 },
+	{ LIBUSB_TRANSFER_TYPE_BULK,	64,	EPO(8), 0, 0 }
+};
+
+static struct usb_intinfo cmr2_ints[] = {
+	USB_EPS_CTRL(0, 1, cmr2_epinfos0),
+	USB_EPS_CTRL(1, 2, cmr2_epinfos1),
+	USB_EPS_CTRL(2, 3, cmr2_epinfos2),
+	USB_EPS_CTRL(3, 4, cmr2_epinfos3)
+};
+#endif
+
+#ifdef USE_GEKKO
 static struct usb_epinfo ica_epinfos[] = {
 	{ LIBUSB_TRANSFER_TYPE_BULK,	64,	EPI(3), 0, 0 },
 	{ LIBUSB_TRANSFER_TYPE_BULK,	64,	EPO(2), 0, 0 }
@@ -851,6 +928,20 @@ static struct usb_find_devices find_dev[] = {
 		.timeout = ICARUS_TIMEOUT_MS,
 		.latency = LATENCY_STD,
 		INTINFO(cmr2_ints) },
+#endif
+#ifdef USE_GEKKO
+	{
+		.drv = DRIVER_gekko,
+		.name = "GEK",
+		.ident = IDENT_GEK,
+		.idVendor = 0x10c4,
+		.idProduct = 0xea60,
+		.iManufacturer = "GekkoScience",
+		.iProduct = "Compac BM1384 Bitcoin Miner",
+		.config = 1,
+		.timeout = GEKKO_TIMEOUT_MS,
+		.latency = LATENCY_UNUSED,
+		INTINFO(amu_ints) },
 #endif
 #ifdef USE_COINTERRA
 	{
@@ -3749,6 +3840,7 @@ void usb_cleanup(void)
 			case DRIVER_drillbit:
 			case DRIVER_modminer:
 			case DRIVER_icarus:
+			case DRIVER_gekko:
 			case DRIVER_avalon:
 			case DRIVER_avalon2:
 			case DRIVER_avalon4:
