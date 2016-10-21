@@ -8,7 +8,7 @@
  */
 
 /* Compile:
- *   gcc api-example.c -I compat/jansson -o cgminer-api
+ *   gcc api-example.c -Icompat/jansson-2.6/src -Icompat/libusb-1.0/libusb -o cgminer-api
  */
 
 #include "config.h"
@@ -25,14 +25,13 @@
 #include "compat.h"
 #include "miner.h"
 
-#if defined(unix)
+#if defined(unix) || defined(__APPLE__)
 	#include <errno.h>
 	#include <sys/socket.h>
 	#include <netinet/in.h>
 	#include <arpa/inet.h>
 	#include <netdb.h>
 
-	#define SOCKETTYPE int
 	#define SOCKETFAIL(a) ((a) < 0)
 	#define INVSOCK -1
 	#define CLOSESOCKET close
@@ -140,8 +139,6 @@
 	#endif
 #endif
 
-#define RECVSIZE 65500
-
 static const char SEPARATOR = '|';
 static const char COMMA = ',';
 static const char EQ = '=';
@@ -190,18 +187,25 @@ void display(char *buf)
 	}
 }
 
+#define SOCKSIZ 65535
+
 int callapi(char *command, char *host, short int port)
 {
-	char buf[RECVSIZE+1];
 	struct hostent *ip;
 	struct sockaddr_in serv;
 	SOCKETTYPE sock;
 	int ret = 0;
-	int n, p;
+	int n;
+	char *buf = NULL;
+	size_t len, p;
 
 	SOCKETINIT;
 
 	ip = gethostbyname(host);
+	if (!ip) {
+		printf("Couldn't get hostname: '%s'\n", host);
+		return 1;
+	}
 
 	sock = socket(AF_INET, SOCK_STREAM, 0);
 	if (sock == INVSOCK) {
@@ -225,10 +229,24 @@ int callapi(char *command, char *host, short int port)
 		ret = 1;
 	}
 	else {
+		len = SOCKSIZ;
+		buf = malloc(len+1);
+		if (!buf) {
+			printf("Err: OOM (%d)\n", (int)(len+1));
+			return 1;
+		}
 		p = 0;
-		buf[0] = '\0';
-		while (p < RECVSIZE) {
-			n = recv(sock, &buf[p], RECVSIZE - p , 0);
+		while (42) {
+			if ((len - p) < 1) {
+				len += SOCKSIZ;
+				buf = realloc(buf, len+1);
+				if (!buf) {
+					printf("Err: OOM (%d)\n", (int)(len+1));
+					return 1;
+				}
+			}
+
+			n = recv(sock, &buf[p], len - p , 0);
 
 			if (SOCKETFAIL(n)) {
 				printf("Recv failed: %s\n", SOCKERRMSG);
@@ -240,8 +258,8 @@ int callapi(char *command, char *host, short int port)
 				break;
 
 			p += n;
-			buf[p] = '\0';
 		}
+		buf[p] = '\0';
 
 		if (ONLY)
 			printf("%s\n", buf);

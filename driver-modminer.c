@@ -87,8 +87,6 @@
 // Limit when reducing shares_to_good
 #define MODMINER_MIN_BACK 12
 
-struct device_drv modminer_drv;
-
 // 45 noops sent when detecting, in case the device was left in "start job" reading
 static const char NOOP[] = MODMINER_PING "\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff";
 
@@ -111,7 +109,7 @@ static void do_ping(struct cgpu_info *modminer)
 		modminer->drv->name, modminer->fpgaid, amount, err);
 }
 
-static bool modminer_detect_one(struct libusb_device *dev, struct usb_find_devices *found)
+static struct cgpu_info *modminer_detect_one(struct libusb_device *dev, struct usb_find_devices *found)
 {
 	char buf[0x100+1];
 	char *devname = NULL;
@@ -127,9 +125,6 @@ static bool modminer_detect_one(struct libusb_device *dev, struct usb_find_devic
 
 	if (!usb_init(modminer, dev, found))
 		goto shin;
-
-	usb_set_cps(modminer, 11520);
-	usb_enable_cps(modminer);
 
 	do_ping(modminer);
 
@@ -208,7 +203,7 @@ static bool modminer_detect_one(struct libusb_device *dev, struct usb_find_devic
 		tmp->modminer_mutex = modminer->modminer_mutex;
 
 		if (!add_cgpu(tmp)) {
-			tmp = usb_free_cgpu_devlock(tmp, !added);
+			tmp = usb_free_cgpu(tmp);
 			goto unshin;
 		}
 
@@ -217,9 +212,9 @@ static bool modminer_detect_one(struct libusb_device *dev, struct usb_find_devic
 		added = true;
 	}
 
-	modminer = usb_free_cgpu_devlock(modminer, !added);
+	modminer = usb_free_cgpu(modminer);
 
-	return true;
+	return modminer;
 
 unshin:
 	if (!added)
@@ -231,15 +226,15 @@ shin:
 		modminer->modminer_mutex = NULL;
 	}
 
-	modminer = usb_free_cgpu_devlock(modminer, !added);
+	modminer = usb_free_cgpu(modminer);
 
 	if (added)
-		return true;
+		return modminer;
 	else
-		return false;
+		return NULL;
 }
 
-static void modminer_detect()
+static void modminer_detect(bool __maybe_unused hotplug)
 {
 	usb_detect(&modminer_drv, modminer_detect_one);
 }
@@ -553,7 +548,7 @@ static bool modminer_fpga_upload_bitstream(struct cgpu_info *modminer)
 		modminer->drv->name, modminer->device_id, devmsg);
 
 	// Give it a 2/3s delay after programming
-	nmsleep(666);
+	cgsleep_ms(666);
 
 	usb_set_dev_start(modminer);
 
@@ -739,7 +734,7 @@ static bool modminer_fpga_init(struct thr_info *thr)
 
 static void get_modminer_statline_before(char *buf, size_t bufsiz, struct cgpu_info *modminer)
 {
-	tailsprintf(buf, bufsiz, " %s%.1fC %3uMHz  | ",
+	tailsprintf(buf, bufsiz, "%s%.1fC %3uMHz",
 			(modminer->temp < 10) ? " " : "",
 			modminer->temp,
 			(unsigned int)(modminer->clock));
@@ -1016,7 +1011,7 @@ tryagain:
 			break;
 
 		// 1/10th sec to lower CPU usage
-		nmsleep(100);
+		cgsleep_ms(100);
 		if (work_restart(thr))
 			break;
 	}
@@ -1031,7 +1026,7 @@ tryagain:
 	if (hashes > 0xffffffff)
 		hashes = 0xffffffff;
 
-	work->blk.nonce = 0xffffffff;
+	work->nonce = 0xffffffff;
 
 	return hashes;
 }
@@ -1065,7 +1060,7 @@ static int64_t modminer_scanhash(struct thr_info *thr, struct work *work, int64_
 					return 0;
 
 				// Give it 1s rest then check again
-				nmsleep(1000);
+				cgsleep_ms(1000);
 			}
 		}
 	}
@@ -1132,7 +1127,7 @@ static char *modminer_set_device(struct cgpu_info *modminer, char *option, char 
 }
 
 struct device_drv modminer_drv = {
-	.drv_id = DRIVER_MODMINER,
+	.drv_id = DRIVER_modminer,
 	.dname = "ModMiner",
 	.name = "MMQ",
 	.drv_detect = modminer_detect,
