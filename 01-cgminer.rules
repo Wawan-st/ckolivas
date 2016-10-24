@@ -50,3 +50,6 @@ ATTRS{idVendor}=="03eb", ATTRS{idProduct}=="2404", SUBSYSTEM=="usb", ACTION=="ad
 
 # Avalon4
 ATTRS{idVendor}=="29f1", ATTRS{idProduct}=="33f2", SUBSYSTEM=="usb", ACTION=="add", MODE="0666", GROUP="plugdev"
+
+#Gridseed
+ATTRS{idVendor}=="0483", ATTRS{idProduct}=="5740", SUBSYSTEMS=="usb", ACTION=="add", MODE="0666", GROUP="plugdev"
