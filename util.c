@@ -2779,28 +2779,38 @@ retry:
 
 static char *get_sessionid(json_t *val)
 {
-	char *ret = NULL;
+	char *ret = NULL, *notify; 
 	json_t *arr_val;
-	int arrsize, i;
+	int val_size, vi, arrsize, i;        
+         
+        val_size = json_array_size(val);        
+        for(vi = 0; vi < val_size; ++vi){
+            arr_val = json_array_get(val, vi);
+            if (!arr_val || !json_is_array(arr_val))
+                goto out;    
 
-	arr_val = json_array_get(val, 0);
-	if (!arr_val || !json_is_array(arr_val))
-		goto out;
-	arrsize = json_array_size(arr_val);
-	for (i = 0; i < arrsize; i++) {
-		json_t *arr = json_array_get(arr_val, i);
-		char *notify;
-
-		if (!arr | !json_is_array(arr))
-			break;
-		notify = __json_array_string(arr, 0);
-		if (!notify)
-			continue;
-		if (!strncasecmp(notify, "mining.notify", 13)) {
-			ret = json_array_string(arr, 1);
-			break;
-		}
-	}
+            notify = __json_array_string(arr_val, 0);
+            if (notify){
+                if (!strncasecmp(notify, "mining.notify", 13)){                       
+                    ret = json_array_string(arr_val, 1);
+                    goto out;
+                }
+            }
+            
+            arrsize = json_array_size(arr_val);  
+            for (i = 0; i < arrsize; ++i) {
+                json_t *arr = json_array_get(arr_val, i);                                                      
+                if (!arr | !json_is_array(arr))                        
+                    break;                    
+                notify = __json_array_string(arr, 0);
+                if (!notify)
+                    continue;                    
+                if (!strncasecmp(notify, "mining.notify", 13)){                       
+                    ret = json_array_string(arr, 1);
+                    goto out;
+                }       
+            }
+        }
 out:
 	return ret;
 }
