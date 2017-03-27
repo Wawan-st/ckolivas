@@ -90,8 +90,6 @@ typedef struct {
 	bf_works_t          owork;          /* old work */
 	bf_works_t          cwork;          /* current work */
 	uint32_t            rx[12];
-	uint32_t            rx_prev[12];
-
 } bf_chip_t;
 
 /* chip concentrator init map structure */
@@ -226,6 +224,9 @@ typedef struct {
 	time_t              power2_enable_time;
 #endif
 
+	/* true if power is enabled on board and power enable timeout reached */
+	bool                ready;
+
 	bf_cmd_buffer_t     cmd_buffer;
 
 	/* chip statistics */
@@ -349,6 +350,10 @@ struct bitfury16_info {
 	bool            a_temp;
 	bool            a_ichain;
 	bool            a_net;
+
+	/* true if all alarms are disabled and power enable timeout reached */
+	bool            device_ready;
+
 	time_t          ialarm_start;
 	uint16_t        ialarm_count;
 	bool            ialarm_buzzer;

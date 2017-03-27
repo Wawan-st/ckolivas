@@ -24,8 +24,8 @@ int8_t uart_init(device_t* attr, uart_channel_id_t channel_id, int8_t mode, uint
 	attr->speed = speed;
 	attr->bits = 8;
 	attr->size = size;
-	attr->rx = malloc(size);
-	attr->tx = malloc(size);
+	attr->rx = malloc(size + 1);
+	attr->tx = malloc(size + 1);
 
 	int fd;
 	if ((fd = open(attr->device, O_RDWR | O_NOCTTY | O_NDELAY)) < 0)

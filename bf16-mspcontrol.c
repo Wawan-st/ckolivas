@@ -103,7 +103,7 @@ void parse_board_detect(struct cgpu_info *bitfury, uint8_t board_id, char* data)
 	struct bitfury16_info *info = (struct bitfury16_info *)(bitfury->device_data);
 	char* start = data;
 
-	char val[4];
+	char val[16];
 	memset(val, 0, sizeof(val));
 
 	/* BRD_DET*/
