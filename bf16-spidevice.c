@@ -72,15 +72,6 @@ int8_t spi_init(device_t* attr, spi_channel_id_t channel_id, int8_t mode, uint32
 	return 0;
 }
 
-static __attribute__((always_inline, optimize(3))) inline uint32_t rev32(uint32_t u32)
-{
-	__asm("REV %[output], %[input]"
-		: [output] "=r" (u32) : [input] "r" (u32)
-	);
-
-	return u32;
-}
-
 void spi_transfer(device_t *attr)
 {
 	uint16_t i;
@@ -95,7 +86,7 @@ void spi_transfer(device_t *attr)
 		(4 * (attr->datalen / 4 + 1));
 
 	for (i = 0; i <= datalen / 4; i++)
-		tx_buff[i] = rev32(*(uint32_t *)(attr->tx + 4*i));
+		tx_buff[i] = ntohl(*(uint32_t *)(attr->tx + 4*i));
 
 	struct spi_ioc_transfer tr = {
 		.tx_buf = (unsigned long) (tx_buff),
@@ -110,7 +101,7 @@ void spi_transfer(device_t *attr)
 		quit(1, "BF16: %s() failed to send SPI message: %s", __func__, strerror(errno));
 
 	for (i = 0; i < attr->datalen / 4; i++)
-		*(uint32_t *)(attr->rx + 4*i) = rev32(rx_buff[i]);
+		*(uint32_t *)(attr->rx + 4*i) = ntohl(rx_buff[i]);
 
 #if 0
 	uint16_t i;
