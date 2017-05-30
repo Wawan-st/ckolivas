@@ -4485,6 +4485,7 @@ retry:
 		}
 	}
 	ce = list_entry(pool->curlring.next, struct curl_ent, node);
+	pool->curls--;
 	list_del(&ce->node);
 	mutex_unlock(&pool->pool_lock);
 
