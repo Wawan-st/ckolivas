@@ -1039,7 +1039,7 @@ int ser_number(unsigned char *s, int32_t val)
 
 	if (val < 128)
 		len = 1;
-	else if (val < 16512)
+	else if (val < 32768)
 		len = 2;
 	else if (val < 2113664)
 		len = 3;
