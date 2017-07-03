@@ -716,7 +716,7 @@ static void hfa_check_options(struct hashfast_info *info)
 	if (!opt_hfa_options)
 		return;
 
-	if (!info->op_name)
+	if (info->op_name[0] == '\0')
 		return;
 
 	maxlen = strlen(info->op_name);
