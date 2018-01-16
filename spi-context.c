@@ -76,7 +76,8 @@ extern bool spi_transfer(struct spi_ctx *ctx, uint8_t *txbuf,
 		memset(rxbuf, 0xff, len);
 
 	ret = len;
-
+	
+	memset(&xfr, 0, sizeof(xfr));
 	xfr.tx_buf = (unsigned long)txbuf;
 	xfr.rx_buf = (unsigned long)rxbuf;
 	xfr.len = len;
@@ -84,7 +85,7 @@ extern bool spi_transfer(struct spi_ctx *ctx, uint8_t *txbuf,
 	xfr.delay_usecs = ctx->config.delay;
 	xfr.bits_per_word = ctx->config.bits;
 	xfr.cs_change = 0;
-	xfr.pad = 0;
+//	xfr.pad = 0;
 
 	ret = ioctl(ctx->fd, SPI_IOC_MESSAGE(1), &xfr);
 	if (ret < 1)
