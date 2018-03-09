@@ -342,10 +342,6 @@ int8_t cmd_buffer_push(bf_cmd_buffer_t* cmd_buffer, const uint8_t depth,
 		return -2;
 
 	bf_command_t command;
-	memset(&command, 0, sizeof(bf_command_t));
-
-	uint8_t buff[192];
-	memset(buff, 0, sizeof(buff));
 
 	if (cmd_code != CHIP_CMD_CREATE_CHANNEL) {
 		res = spi_command_init(&command, depth, chip_address, cmd_code, data_length, tx);
@@ -361,7 +357,10 @@ int8_t cmd_buffer_push(bf_cmd_buffer_t* cmd_buffer, const uint8_t depth,
 
 	cg_memcpy(&CMD(cdata)->chip_address, &chip_address, sizeof(bf_chip_address_t));
 	cg_memcpy(&CMD(cdata)->src_address,  &src_address,  sizeof(bf_chip_address_t));
-	cg_memcpy(&CMD(cdata)->work,         &work,         sizeof(bf_works_t));
+
+	if (cmd_code & CHIP_CMD_TASK_WRITE)
+		cg_memcpy(&CMD(cdata)->work, &work, sizeof(bf_works_t));
+
 	CMD(cdata)->id       = id;
 	CMD(cdata)->depth    = command.depth;
 	CMD(cdata)->checksum = command.checksum;
@@ -382,10 +381,9 @@ int8_t cmd_buffer_push(bf_cmd_buffer_t* cmd_buffer, const uint8_t depth,
 	}
 
 	/* init send buffer */
-	if (cmd_code != CHIP_CMD_CREATE_CHANNEL) {
-		cg_memcpy(buff, command.tx, command.data_length);
-		cg_memcpy(cmd_buffer->tx_buffer + cmd_buffer->tx_offset, buff, CMD(cdata)->data_length);
-	} else
+	if (cmd_code != CHIP_CMD_CREATE_CHANNEL)
+		cg_memcpy(cmd_buffer->tx_buffer + cmd_buffer->tx_offset, command.tx, CMD(cdata)->data_length);
+	else
 		cg_memcpy(cmd_buffer->tx_buffer + cmd_buffer->tx_offset, tx, CMD(cdata)->data_length);
 
 #if 0
@@ -516,9 +514,7 @@ int8_t cmd_buffer_pop(bf_cmd_buffer_t* cmd_buffer, bf_cmd_status_t* cmd_status, 
 	if (cmd_buffer->cmd_list->head == NULL)
 		return -3;
 
-	uint8_t buff[192];
 	bf_command_t chip_command;
-	memset(buff, 0, sizeof(buff));
 	memset(chip_command.rx, 0, sizeof(chip_command.rx));
 
 	/* extract command from list */
@@ -534,25 +530,30 @@ int8_t cmd_buffer_pop(bf_cmd_buffer_t* cmd_buffer, bf_cmd_status_t* cmd_status, 
 	chip_command.nonce_checksum_error = false;
 
 	/* extract chip return data */
-	cg_memcpy(buff, cmd_buffer->rx_buffer + cmd_buffer->rx_offset, CMD(cdata)->data_length);
-	cmd_buffer->rx_offset += CMD(cdata)->data_length;
+	uint16_t rx_offset;
 	if (CMD(cdata)->cmd_code & CHIP_CMD_READ_NONCE) {
-		cg_memcpy(chip_command.rx, buff + CMD(cdata)->data_length - (49 + 2 + extra_bytes(chip_command.depth)),
-				49 + 2 + extra_bytes(chip_command.depth));
+		rx_offset = cmd_buffer->rx_offset + CMD(cdata)->data_length - (49 + 2 + extra_bytes(chip_command.depth));
+		cg_memcpy(chip_command.rx, cmd_buffer->rx_buffer + rx_offset, 49 + 2 + extra_bytes(chip_command.depth));
+
 		memset(nonces, 0, 12 * sizeof(uint32_t));
 		analyze_rx_data(&chip_command, cmd_status, nonces);
 	} else if (CMD(cdata)->cmd_code == CHIP_CMD_CREATE_CHANNEL) {
-		cg_memcpy(chip_command.rx, buff, CMD(cdata)->data_length);
+		cg_memcpy(chip_command.rx, cmd_buffer->rx_buffer + cmd_buffer->rx_offset, CMD(cdata)->data_length);
 	} else {
-		cg_memcpy(chip_command.rx, buff + CMD(cdata)->data_length - (2 + extra_bytes(chip_command.depth)),
-				2 + extra_bytes(chip_command.depth));
+		rx_offset = cmd_buffer->rx_offset + CMD(cdata)->data_length - (2 + extra_bytes(chip_command.depth));
+		cg_memcpy(chip_command.rx, cmd_buffer->rx_buffer + rx_offset, 2 + extra_bytes(chip_command.depth));
 		analyze_rx_data(&chip_command, cmd_status, NULL);
 	}
+
+	cmd_buffer->rx_offset += CMD(cdata)->data_length;
 
 	/* prepare cmd_status */
 	cg_memcpy(&cmd_status->chip_address, &CMD(cdata)->chip_address, sizeof(bf_chip_address_t));
 	cg_memcpy(&cmd_status->src_address,  &CMD(cdata)->src_address,  sizeof(bf_chip_address_t));
-	cg_memcpy(&cmd_status->work,         &CMD(cdata)->work,         sizeof(bf_works_t));
+
+	if (CMD(cdata)->cmd_code & CHIP_CMD_TASK_WRITE)
+		cg_memcpy(&cmd_status->work, &CMD(cdata)->work, sizeof(bf_works_t));
+
 	cmd_status->id       = CMD(cdata)->id;
 	cmd_status->cmd_code = CMD(cdata)->cmd_code;
 
@@ -698,8 +699,7 @@ uint8_t gen_task_data(uint32_t* midstate, uint32_t merkle, uint32_t ntime,
 	for (i = 0; i < 8; i++) {
 		tmp = midstate[i];
 		tmp ^= 0xaaaaaaaa;
-		tmp = ntohl(tmp);
-		cg_memcpy(task + i*4, &tmp, sizeof(tmp));
+		*(uint32_t *)(task + i*4) = ntohl(tmp);
 	}
 
 	ms3steps16(midstate, w, (uint32_t*)task);
@@ -707,12 +707,10 @@ uint8_t gen_task_data(uint32_t* midstate, uint32_t merkle, uint32_t ntime,
 	for (i = 0; i < 3; i++) {
 		tmp = w[i];
 		tmp ^= 0xaaaaaaaa;
-		tmp = ntohl(tmp);
-		cg_memcpy(task + (12 + i)*4, &tmp, sizeof(tmp));
+		*(uint32_t *)(task + (12 + i)*4) = ntohl(tmp);
 	}
 
-	mask = ntohl(mask);
-	cg_memcpy(task + 19*4, &mask, sizeof(mask));
+	*(uint32_t *)(task + 19*4) = ntohl(mask);
 
 	return 0;
 }

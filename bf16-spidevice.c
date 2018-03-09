@@ -20,12 +20,12 @@ int8_t spi_init(device_t* attr, spi_channel_id_t channel_id, int8_t mode, uint32
 		break;
 	}
 
-	attr->mode = mode;
+	attr->mode  = mode;
 	attr->speed = speed;
-	attr->bits = 8;
-	attr->size = size;
-	attr->rx = malloc(size);
-	attr->tx = malloc(size);
+	attr->bits  = 32;
+	attr->size  = size;
+	attr->rx    = malloc(size);
+	attr->tx    = malloc(size);
 
 	int fd;
 	if ((fd = open(attr->device, O_RDWR)) < 0) {
@@ -74,10 +74,24 @@ int8_t spi_init(device_t* attr, spi_channel_id_t channel_id, int8_t mode, uint32
 
 void spi_transfer(device_t *attr)
 {
+	uint16_t i;
+	uint32_t tx_buff[SPI_BUFFER_SIZE / 4];
+	uint32_t rx_buff[SPI_BUFFER_SIZE / 4];
+
+	memset(tx_buff, 0, sizeof(tx_buff));
+	memset(rx_buff, 0, sizeof(rx_buff));
+
+	uint32_t datalen = (attr->datalen % 4 == 0) ?
+		attr->datalen :
+		(4 * (attr->datalen / 4 + 1));
+
+	for (i = 0; i <= datalen / 4; i++)
+		tx_buff[i] = ntohl(*(uint32_t *)(attr->tx + 4*i));
+
 	struct spi_ioc_transfer tr = {
-		.tx_buf = (unsigned long) (attr->tx),
-		.rx_buf = (unsigned long) (attr->rx),
-		.len = attr->datalen,
+		.tx_buf = (unsigned long) (tx_buff),
+		.rx_buf = (unsigned long) (rx_buff),
+		.len = datalen,
 		.delay_usecs = attr->delay,
 		.speed_hz = attr->speed,
 		.bits_per_word = attr->bits
@@ -85,6 +99,9 @@ void spi_transfer(device_t *attr)
 
 	if (ioctl(attr->fd, SPI_IOC_MESSAGE(1), &tr) < 0)
 		quit(1, "BF16: %s() failed to send SPI message: %s", __func__, strerror(errno));
+
+	for (i = 0; i < attr->datalen / 4; i++)
+		*(uint32_t *)(attr->rx + 4*i) = ntohl(rx_buff[i]);
 
 #if 0
 	uint16_t i;
@@ -99,7 +116,6 @@ void spi_transfer(device_t *attr)
 		sprintf(data, "%s%02x", data, attr->rx[i]);
 	applog(LOG_DEBUG, "BF16: RX <- [%s]", data);
 #endif
-
 }
 
 void spi_release(device_t *attr)

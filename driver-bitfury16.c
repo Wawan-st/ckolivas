@@ -14,7 +14,7 @@
 #define LOGFILE                 "/var/log/cgminer.log"
 #endif
 
-#define DISABLE_SEND_CMD_ERROR
+//#define DISABLE_SEND_CMD_ERROR
 
 #define POWER_WAIT_INTERVAL     100000
 #define RENONCE_SEND            5
@@ -108,7 +108,7 @@ int opt_bf16_alarm_temp = -1;
 char* opt_bf16_test_chip = NULL;
 
 /* number of bits to fixate */
-static uint32_t mask_bits = 10;
+static uint32_t mask_bits = 12;
 
 /* default chip mask */
 static uint32_t mask = 0x00000000;
@@ -995,14 +995,14 @@ static void init_x5(struct cgpu_info *bitfury)
 		char buff[256];
 		memset(buff, 0, sizeof(buff));
 
+		info->chipboard[board_id].bcm250 = cgcalloc(BCM250_NUM, sizeof(bf_bcm250_t));
+		cmd_buffer_init(&info->chipboard[board_id].cmd_buffer);
+
 		device_ctrl_txrx(board_id + 1, 0, F_BDET, buff);
 		parse_board_detect(bitfury, board_id, buff);
 
 		if (info->chipboard[board_id].detected == true) {
 			applog(LOG_NOTICE, "%s: BOARD%d detected", bitfury->drv->name, board_id + 1);
-
-			info->chipboard[board_id].bcm250 = cgcalloc(BCM250_NUM, sizeof(bf_bcm250_t));
-			cmd_buffer_init(&info->chipboard[board_id].cmd_buffer);
 
 			get_board_info(bitfury, board_id);
 			update_bcm250_map(bitfury, board_id);
@@ -1361,6 +1361,11 @@ static void bitfury16_detect(bool hotplug)
 	/* wait for power chain to enable */
 	cgsleep_us(POWER_WAIT_INTERVAL);
 
+	for (board_id = 0; board_id < CHIPBOARD_NUM; board_id++) {
+		if (info->chipboard[board_id].detected == true)
+			info->chipboard[board_id].ready = true;
+	}
+
 	if (opt_bf16_set_clock == true) {
 		applog(LOG_INFO, "%s: setting clock [%02x] to all chips",
 				bitfury->drv->name, bf16_chip_clock);
@@ -1539,7 +1544,8 @@ static void bitfury16_detect(bool hotplug)
 		quit(1, "%s: %s() failed to add_cgpu",
 				bitfury->drv->name, __func__);
 
-	info->initialised = true;
+	info->initialised  = true;
+	info->device_ready = true;
 
 	applog(LOG_INFO, "%s: chip driver initialized", bitfury->drv->name);
 #ifdef FILELOG
@@ -1820,14 +1826,12 @@ static uint8_t renonce_task_update_loop(struct cgpu_info *bitfury, uint8_t board
 				(RENONCE(rdata)->stage == stage)) {
 				/* generate work mask */
 				uint32_t nonce_mask = gen_mask(RENONCE(rdata)->nonce, mask_bits);
-				nonce_mask = ntohl(nonce_mask);
 
 				switch (RENONCE(rdata)->stage) {
 					case RENONCE_STAGE0:
 					case RENONCE_STAGE2:
 						/* generate chip work with new mask */
-						cg_memcpy(RENONCE(rdata)->owork.task + 19*4,
-								&nonce_mask, sizeof(nonce_mask));
+						*(uint32_t *)(RENONCE(rdata)->owork.task + 19*4) = ntohl(nonce_mask);
 
 						/* send task and read nonces at the same time */
 						ret = cmd_buffer_push(cmd_buffer,
@@ -1840,8 +1844,7 @@ static uint8_t renonce_task_update_loop(struct cgpu_info *bitfury, uint8_t board
 					case RENONCE_STAGE1:
 					case RENONCE_STAGE3:
 						/* generate chip work with new mask */
-						cg_memcpy(RENONCE(rdata)->cwork.task + 19*4,
-								&nonce_mask, sizeof(nonce_mask));
+						*(uint32_t *)(RENONCE(rdata)->cwork.task + 19*4) = ntohl(nonce_mask);
 
 						/* send task and read nonces at the same time */
 						ret = cmd_buffer_push(cmd_buffer,
@@ -2181,10 +2184,8 @@ static uint8_t process_nonces(struct cgpu_info *bitfury, bf_cmd_status_t cmd_sta
 
 	if ((cmd_status.checksum_error == false) &&
 	    (cmd_status.nonce_checksum_error == false)) {
-		cg_memcpy(info->chipboard[board_id].bcm250[bcm250_id].chips[chip_id].rx, nonces, sizeof(found_nonces));
-
-		uint8_t found = find_nonces(info->chipboard[board_id].bcm250[bcm250_id].chips[chip_id].rx,
-									info->chipboard[board_id].bcm250[bcm250_id].chips[chip_id].rx_prev,
+		uint8_t found = find_nonces(nonces,
+									info->chipboard[board_id].bcm250[bcm250_id].chips[chip_id].rx,
 									found_nonces);
 
 		/* check if chip is still mining */
@@ -2291,6 +2292,7 @@ static uint8_t process_nonces(struct cgpu_info *bitfury, bf_cmd_status_t cmd_sta
 			L_UNLOCK(info->renonce_list);
 		}
 
+		/* process nonces */
 		bf_list_t* nonce_list = info->chipboard[board_id].bcm250[bcm250_id].chips[chip_id].nonce_list;
 		for (i = 0; i < found; i++) {
 			L_LOCK(nonce_list);
@@ -2347,8 +2349,8 @@ static uint8_t process_nonces(struct cgpu_info *bitfury, bf_cmd_status_t cmd_sta
 		}
 
 		/* rotate works and buffers */
-		cg_memcpy(info->chipboard[board_id].bcm250[bcm250_id].chips[chip_id].rx_prev,
-			   info->chipboard[board_id].bcm250[bcm250_id].chips[chip_id].rx, sizeof(found_nonces));
+		cg_memcpy(info->chipboard[board_id].bcm250[bcm250_id].chips[chip_id].rx,
+			   nonces, sizeof(found_nonces));
 
 		cg_memcpy(&info->chipboard[board_id].bcm250[bcm250_id].chips[chip_id].owork,
 				&info->chipboard[board_id].bcm250[bcm250_id].chips[chip_id].cwork, sizeof(bf_works_t));
@@ -2405,13 +2407,13 @@ static void process_cmd_buffer(struct cgpu_info *bitfury, uint8_t board_id)
 	struct bitfury16_info *info = (struct bitfury16_info *)(bitfury->device_data);
 	uint8_t i;
 	bf_cmd_status_t cmd_status;
+	uint32_t nonces[12];
 	bf_cmd_buffer_t* cmd_buffer = &info->chipboard[board_id].cmd_buffer;
 
 	if (cmd_buffer->status == EXECUTED) {
 		/* process extracted data */
 		uint16_t cmd_number = cmd_buffer->cmd_list->count;
 		for (i = 0; i < cmd_number; i++) {
-			uint32_t nonces[12];
 
 			cmd_buffer_pop(cmd_buffer, &cmd_status, nonces);
 			if ((cmd_status.cmd_code == CHIP_CMD_CREATE_CHANNEL) ||
@@ -2451,10 +2453,10 @@ static void *bitfury_chipworker(void *userdata)
 	spi_emit_reset(SPI_CHANNEL2);
 
 	while (bitfury->shutdown == false) {
-		if ((info->a_temp == false) &&
-			(info->a_ichain == false)) {
+		if (info->device_ready == true) {
 			for (board_id = 0; board_id < CHIPBOARD_NUM; board_id++) {
-				if (info->chipboard[board_id].detected == true) {
+				if ((info->chipboard[board_id].detected == true) &&
+					(info->chipboard[board_id].ready == true)) {
 					/* prepare send buffer */
 					struct timeval start_time, stop_time;
 					gettimeofday(&start_time, NULL);
@@ -2953,6 +2955,7 @@ static void *bitfury_renonceworker(void *userdata)
 				continue;
 			}
 
+			/* remove expired renonce */
 			if ((RENONCE(rdata)->stage == RENONCE_STAGE_FINISHED) &&
 				(RENONCE(rdata)->sent == false)) {
 				info->unmatched++;
@@ -3070,12 +3073,16 @@ static void *bitfury_hwmonitor(void *userdata)
 				info->chipboard[board_id].p_board = ((info->chipboard[board_id].u_board + U_LOSS) * i_board + 2.0 +
 						info->chipboard[board_id].p_fan);
 
-				if (info->chipboard[board_id].a_temp == 1)
+				if (info->chipboard[board_id].a_temp == 1) {
 					a_temp = true;
+					info->device_ready = false;
+				}
 
 				if ((info->chipboard[board_id].a_ichain1 == 1) ||
-					(info->chipboard[board_id].a_ichain2 == 1))
+					(info->chipboard[board_id].a_ichain2 == 1)) {
 					a_ichain = true;
+					info->device_ready = false;
+				}
 
 				if (max_temp < info->chipboard[board_id].temp)
 					max_temp = info->chipboard[board_id].temp;
@@ -3112,6 +3119,7 @@ static void *bitfury_hwmonitor(void *userdata)
 			set_fan_speed(bitfury);
 
 			reinit_x5(info, false);
+			info->device_ready = true;
 		}
 
 		/* enable power chain alarm */
@@ -3132,6 +3140,7 @@ static void *bitfury_hwmonitor(void *userdata)
 				info->ialarm_start  = time(NULL);
 
 				reinit_x5(info, false);
+				info->device_ready = true;
 			}
 		}
 
@@ -3160,6 +3169,14 @@ static void *bitfury_hwmonitor(void *userdata)
 					info->chipboard[board_id].power2_enable_time = curr_time;
 #endif
 				}
+
+				/* wait for power chain to enable */
+				cgsleep_us(POWER_WAIT_INTERVAL);
+
+				for (board_id = 0; board_id < CHIPBOARD_NUM; board_id++) {
+					if (info->chipboard[board_id].detected == true)
+						info->chipboard[board_id].ready = true;
+				}
 			}
 		} else if (opt_bf16_power_management_disabled == false) {
 			if (info->a_net == true) {
@@ -3173,7 +3190,14 @@ static void *bitfury_hwmonitor(void *userdata)
 						if ((info->chipboard[board_id].p_chain1_enabled == 1) ||
 							(info->chipboard[board_id].p_chain2_enabled == 1)) {
 #endif
+							info->chipboard[board_id].ready = false;
 							disable_power_chain(bitfury, board_id, 0);
+
+#ifdef FILELOG
+							filelog(info, "%s: inet absent: disable power chain on BOARD%d",
+									bitfury->drv->name,
+									board_id + 1);
+#endif
 						}
 					}
 				}
@@ -3187,27 +3211,47 @@ static void *bitfury_hwmonitor(void *userdata)
 							(info->chipboard[board_id].power_disabled == false)) {
 							enable_power_chain(bitfury, board_id, 0);
 							info->chipboard[board_id].power_enable_time = time(NULL);
-
-							/* wait for power chain to enable */
-							cgsleep_us(POWER_WAIT_INTERVAL);
-
-							reinit_x5(info, false);
+							recovery = true;
 						}
 #endif
 
 #ifdef MINER_X6
 						if ((info->chipboard[board_id].p_chain1_enabled == 0) &&
-							(info->chipboard[board_id].power1_disabled == false)){
+							(info->chipboard[board_id].power1_disabled == false) &&
+						    (info->chipboard[board_id].p_chain2_enabled == 0) &&
+							(info->chipboard[board_id].power2_disabled == false)) {
+							enable_power_chain(bitfury, board_id, 0);
+							info->chipboard[board_id].power1_enable_time = time(NULL);
+							info->chipboard[board_id].power2_enable_time = time(NULL);
+							recovery = true;
+
+#ifdef FILELOG
+							filelog(info, "%s: inet recovery: reenabled power on BOARD%d",
+									bitfury->drv->name,
+									board_id + 1);
+#endif
+						} else if ((info->chipboard[board_id].p_chain1_enabled == 0) &&
+							(info->chipboard[board_id].power1_disabled == false)) {
 							enable_power_chain(bitfury, board_id, 1);
 							info->chipboard[board_id].power1_enable_time = time(NULL);
 							recovery = true;
-						}
 
-						if ((info->chipboard[board_id].p_chain2_enabled == 0) &&
+#ifdef FILELOG
+							filelog(info, "%s: inet recovery: reenabled power chain 1 on BOARD%d",
+									bitfury->drv->name,
+									board_id + 1);
+#endif
+						} else if ((info->chipboard[board_id].p_chain2_enabled == 0) &&
 							(info->chipboard[board_id].power2_disabled == false)) {
 							enable_power_chain(bitfury, board_id, 2);
 							info->chipboard[board_id].power2_enable_time = time(NULL);
 							recovery = true;
+
+#ifdef FILELOG
+							filelog(info, "%s: inet recovery: reenabled power chain 2 on BOARD%d",
+									bitfury->drv->name,
+									board_id + 1);
+#endif
 						}
 #endif
 					}
@@ -3219,6 +3263,12 @@ static void *bitfury_hwmonitor(void *userdata)
 					cgsleep_us(POWER_WAIT_INTERVAL);
 
 					reinit_x5(info, false);
+					info->device_ready = true;
+
+					for (board_id = 0; board_id < CHIPBOARD_NUM; board_id++) {
+						if (info->chipboard[board_id].detected == true)
+							info->chipboard[board_id].ready = true;
+					}
 				}
 			}
 		}
@@ -3323,6 +3373,7 @@ static void *bitfury_hwmonitor(void *userdata)
 					/* disable chain power if all chips failed */
 					if ((total_chips == disabled_chips) &&
 						(info->chipboard[board_id].p_chain1_enabled == 1)) {
+						info->chipboard[board_id].ready = false;
 						disable_power_chain(bitfury, board_id, 0);
 
 						/* increase disable counter until we reach long enough work time */
@@ -3335,30 +3386,34 @@ static void *bitfury_hwmonitor(void *userdata)
 						info->chipboard[board_id].chips_disabled     = info->chipboard[board_id].chips_num;
 					}
 
-					/* enable disabled chain */
-					if ((info->chipboard[board_id].p_chain1_enabled == 0) &&
-					    (info->chipboard[board_id].power_disabled == true) &&
-					    (curr_time - info->chipboard[board_id].power_disable_time >= info->chipboard[board_id].power_disable_count * CHAIN_REENABLE_INTERVAL)) {
-						time_t disable_interval = curr_time - info->chipboard[board_id].power_disable_time;
-						info->chipboard[board_id].power_disable_time = curr_time;
-						info->chipboard[board_id].chips_disabled     = 0;
+					/* HW FIX: try to reenable disabled chain */
+					if (info->chipboard[board_id].active == true) {
+						if ((info->chipboard[board_id].p_chain1_enabled == 0) &&
+						    (info->chipboard[board_id].power_disabled == true) &&
+						    (curr_time - info->chipboard[board_id].power_disable_time >= info->chipboard[board_id].power_disable_count * CHAIN_REENABLE_INTERVAL)) {
+							time_t disable_interval = curr_time - info->chipboard[board_id].power_disable_time;
+							info->chipboard[board_id].power_disable_time = curr_time;
+							info->chipboard[board_id].chips_disabled     = 0;
 
-						enable_power_chain(bitfury, board_id, 0);
-						info->chipboard[board_id].power_enable_time = curr_time;
-						info->chipboard[board_id].power_disabled    = false;
+							enable_power_chain(bitfury, board_id, 0);
+							info->chipboard[board_id].power_enable_time = curr_time;
+							info->chipboard[board_id].power_disabled    = false;
 
-						/* wait for power chain to enable */
-						cgsleep_us(POWER_WAIT_INTERVAL);
+							/* wait for power chain to enable */
+							cgsleep_us(POWER_WAIT_INTERVAL);
 
-						reinit_x5(info, true);
-						applog(LOG_NOTICE, "%s: reenabled power on BOARD%d: time interval [%d]",
-								bitfury->drv->name,
-								board_id + 1, (int)disable_interval);
+							reinit_x5(info, true);
+							info->chipboard[board_id].ready = true;
+
+							applog(LOG_NOTICE, "%s: reenabled power on BOARD%d: time interval [%d]",
+									bitfury->drv->name,
+									board_id + 1, (int)disable_interval);
 #ifdef FILELOG
-						filelog(info, "%s: reenabled power on BOARD%d: time interval [%d]",
-								bitfury->drv->name,
-								board_id + 1, (int)disable_interval);
+							filelog(info, "%s: reenabled power on BOARD%d: time interval [%d]",
+									bitfury->drv->name,
+									board_id + 1, (int)disable_interval);
 #endif
+						}
 					}
 #endif
 
@@ -3368,6 +3423,7 @@ static void *bitfury_hwmonitor(void *userdata)
 					if ((total_chips_chain1 == disabled_chips_chain1) &&
 						(info->chipboard[board_id].p_chain1_enabled == 1) &&
 						(info->chipboard[board_id].power2_disabled == true)) {
+						info->chipboard[board_id].ready = false;
 						disable_power_chain(bitfury, board_id, 0);
 
 						/* increase disable counter until we reach long enough work time */
@@ -3396,57 +3452,63 @@ static void *bitfury_hwmonitor(void *userdata)
 					}
 
 					/* HW FIX: try to reenable disabled chain */
-					if ((info->chipboard[board_id].p_chain1_enabled == 0) &&
-					    (info->chipboard[board_id].power1_disabled == true) &&
-					    (curr_time - info->chipboard[board_id].power1_disable_time >= info->chipboard[board_id].power1_disable_count * CHAIN_REENABLE_INTERVAL)) {
-						time_t disable_interval = curr_time - info->chipboard[board_id].power1_disable_time;
-						info->chipboard[board_id].power1_disable_time = curr_time;
-						info->chipboard[board_id].power2_disable_time = curr_time;
-						info->chipboard[board_id].chips_disabled      = 0;
+					if (info->chipboard[board_id].active == true) {
+						if ((info->chipboard[board_id].p_chain1_enabled == 0) &&
+						    (info->chipboard[board_id].power1_disabled == true) &&
+						    (curr_time - info->chipboard[board_id].power1_disable_time >= info->chipboard[board_id].power1_disable_count * CHAIN_REENABLE_INTERVAL)) {
+							time_t disable_interval = curr_time - info->chipboard[board_id].power1_disable_time;
+							info->chipboard[board_id].power1_disable_time = curr_time;
+							info->chipboard[board_id].power2_disable_time = curr_time;
+							info->chipboard[board_id].chips_disabled      = 0;
 
-						enable_power_chain(bitfury, board_id, 0);
-						info->chipboard[board_id].power1_enable_time = curr_time;
-						info->chipboard[board_id].power2_enable_time = curr_time;
-						info->chipboard[board_id].power1_disabled    = false;
-						info->chipboard[board_id].power2_disabled    = false;
+							enable_power_chain(bitfury, board_id, 0);
+							info->chipboard[board_id].power1_enable_time = curr_time;
+							info->chipboard[board_id].power2_enable_time = curr_time;
+							info->chipboard[board_id].power1_disabled    = false;
+							info->chipboard[board_id].power2_disabled    = false;
 
-						/* wait for power chain to enable */
-						cgsleep_us(POWER_WAIT_INTERVAL);
+							/* wait for power chain to enable */
+							cgsleep_us(POWER_WAIT_INTERVAL);
 
-						reinit_x5(info, true);
-						applog(LOG_NOTICE, "%s: reenabled power on BOARD%d: time interval [%d]",
-								bitfury->drv->name,
-								board_id + 1, (int)disable_interval);
+							reinit_x5(info, true);
+							info->chipboard[board_id].ready = true;
+
+							applog(LOG_NOTICE, "%s: reenabled power on BOARD%d: time interval [%d]",
+									bitfury->drv->name,
+									board_id + 1, (int)disable_interval);
 #ifdef FILELOG
-						filelog(info, "%s: reenabled power on BOARD%d: time interval [%d]",
-								bitfury->drv->name,
-								board_id + 1, (int)disable_interval);
+							filelog(info, "%s: reenabled power on BOARD%d: time interval [%d]",
+									bitfury->drv->name,
+									board_id + 1, (int)disable_interval);
 #endif
 
-					} else
-					if ((info->chipboard[board_id].p_chain2_enabled == 0) &&
-					    (info->chipboard[board_id].power2_disabled == true) &&
-					    (curr_time - info->chipboard[board_id].power2_disable_time >= info->chipboard[board_id].power2_disable_count * CHAIN_REENABLE_INTERVAL)) {
-						time_t disable_interval = curr_time - info->chipboard[board_id].power2_disable_time;
-						info->chipboard[board_id].power2_disable_time = curr_time;
-						info->chipboard[board_id].chips_disabled      = 0;
+						} else
+						if ((info->chipboard[board_id].p_chain2_enabled == 0) &&
+						    (info->chipboard[board_id].power2_disabled == true) &&
+						    (curr_time - info->chipboard[board_id].power2_disable_time >= info->chipboard[board_id].power2_disable_count * CHAIN_REENABLE_INTERVAL)) {
+							time_t disable_interval = curr_time - info->chipboard[board_id].power2_disable_time;
+							info->chipboard[board_id].power2_disable_time = curr_time;
+							info->chipboard[board_id].chips_disabled      = 0;
 
-						enable_power_chain(bitfury, board_id, 2);
-						info->chipboard[board_id].power2_enable_time = curr_time;
-						info->chipboard[board_id].power2_disabled    = false;
+							enable_power_chain(bitfury, board_id, 2);
+							info->chipboard[board_id].power2_enable_time = curr_time;
+							info->chipboard[board_id].power2_disabled    = false;
 
-						/* wait for power chain to enable */
-						cgsleep_us(POWER_WAIT_INTERVAL);
+							/* wait for power chain to enable */
+							cgsleep_us(POWER_WAIT_INTERVAL);
 
-						reinit_x5(info, true);
-						applog(LOG_NOTICE, "%s: reenabled chainboard 2 on BOARD%d: time interval [%d]",
-								bitfury->drv->name,
-								board_id + 1, (int)disable_interval);
+							reinit_x5(info, true);
+							info->chipboard[board_id].ready = true;
+
+							applog(LOG_NOTICE, "%s: reenabled chainboard 2 on BOARD%d: time interval [%d]",
+									bitfury->drv->name,
+									board_id + 1, (int)disable_interval);
 #ifdef FILELOG
-						filelog(info, "%s: reenabled chainboard 2 on BOARD%d: time interval [%d]",
-								bitfury->drv->name,
-								board_id + 1, (int)disable_interval);
+							filelog(info, "%s: reenabled chainboard 2 on BOARD%d: time interval [%d]",
+									bitfury->drv->name,
+									board_id + 1, (int)disable_interval);
 #endif
+						}
 					}
 #endif
 					/* switch renonce chip to next board */
@@ -3524,9 +3586,10 @@ static void *bitfury_alarm(void *userdata)
 				idle = false;
 		}
 
-		if (idle == true)
+		if (idle == true) {
 			info->a_net = true;
-		else
+			info->device_ready = false;
+		} else
 			info->a_net = false;
 
 		/* temperature alarm processing */
@@ -4012,12 +4075,15 @@ static void *bitfury_statistics(void *userdata)
 
 			if (opt_bf16_stats_enabled) {
 				if (opt_bf16_renonce != RENONCE_DISABLED) {
-					applog(LOG_NOTICE, "STATS: rencs: [%d] stale: [%d] nws: [%d] rnws: [%d] failed: [%d]",
+					applog(LOG_NOTICE, "STATS: rencs: [%d] stale: [%d] nws: [%d] rnws: [%d] "
+							"chips: [%d] failed: [%d] disabled: [%d]",
 							info->renonce_list->count,
 							info->stale_work_list->count,
 							info->noncework_list->count,
 							info->renoncework_list->count,
-							info->chips_failed);
+							info->chips_num,
+							info->chips_failed,
+							info->chips_disabled);
 
 					applog(LOG_NOTICE, "STATS: %4.0fGH/s osc: 0x%02x re_osc: 0x%02x "
 							"%3.1fV %3.1fA %4.1fW %.3fW/GH",
@@ -4213,7 +4279,7 @@ static bool bitfury16_queue_full(struct cgpu_info *bitfury)
 	L_LOCK(info->work_list);
 	uint16_t work_count = info->work_list->count;
 	L_UNLOCK(info->work_list);
-	if (work_count < WORK_QUEUE_LEN)
+	if (work_count < WORK_QUEUE_LEN - 60)
 		need = WORK_QUEUE_LEN - work_count;
 	else
 		return true;
@@ -4331,9 +4397,9 @@ static struct api_data *bitfury16_api_stats(struct cgpu_info *bitfury)
 
 	/* software revision chages according to comments in CHANGELOG */
 	root = api_add_string(root, "hwv1", "1", true);
-	root = api_add_string(root, "hwv2", "2", true);
-	root = api_add_string(root, "hwv3", "11", true);
-	root = api_add_string(root, "hwv4", "0", true);
+	root = api_add_string(root, "hwv2", "3", true);
+	root = api_add_string(root, "hwv3", "0", true);
+	root = api_add_string(root, "hwv4", "1", true);
 	root = api_add_string(root, "hwv5", "0", true);
 
 	/* U avg */
@@ -4345,7 +4411,7 @@ static struct api_data *bitfury16_api_stats(struct cgpu_info *bitfury)
 	root = api_add_string(root, "I total", value, true);
 
 	/* P total */
-	sprintf(value, "%.1f", info->p_total);
+	sprintf(value, "%.0f", info->p_total);
 	root = api_add_string(root, "P total", value, true);
 
 	if (opt_bf16_renonce != RENONCE_DISABLED) {
@@ -4639,6 +4705,7 @@ static void bitfury16_shutdown(struct thr_info *thr)
 
 	/* disable power chain */
 	for (board_id = 0; board_id < CHIPBOARD_NUM; board_id++) {
+		info->chipboard[board_id].ready = false;
 		disable_power_chain(bitfury, board_id, 0);
 	}	
 

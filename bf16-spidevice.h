@@ -4,7 +4,7 @@
 #include "bf16-device.h"
 
 #define SPI_BUFFER_SIZE  4096
-#define SPI_SPEED        20000000
+#define SPI_SPEED        12000000
 
 typedef enum {
 	SPI_CHANNEL1 = 1,
