@@ -10134,9 +10134,11 @@ static void reinit_usb(void)
 
 	applog(LOG_DEBUG, "Reinitialising libusb");
 	libusb_exit(NULL);
+	cgusb_uninitialize();
 	err = libusb_init(NULL);
 	if (err)
 		quit(1, "Reinit of libusb failed err %d:%s", err, libusb_error_name(err));
+	cgusb_check_init();
 	usb_reinit = false;
 }
 

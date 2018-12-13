@@ -1510,7 +1510,12 @@ void usb_all(int level)
 	libusb_free_device_list(list, 1);
 }
 
-static void cgusb_check_init()
+void cgusb_uninitialize()
+{
+	stats_initialised = false;
+}
+
+void cgusb_check_init()
 {
 	mutex_lock(&cgusb_lock);
 
