@@ -127,6 +127,10 @@ if test "x$has_winpthread" != xtrue; then
         PTHREAD_LIBS=-lpthread
 fi
 
+# Does the system have a POSIX clock_nanosleep (which can be given a
+# CLOCK_MONOTONIC argument, can I check for that here too)?
+AC_CHECK_FUNCS(clock_nanosleep)
+
 # Drivers that are designed to be run on dedicated hardware should set standalone to yes
 # All drivers should prepend an x to the drivercount
 

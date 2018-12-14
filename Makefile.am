@@ -4,7 +4,7 @@ ACLOCAL_AMFLAGS = -I m4
 JANSSON_CPPFLAGS= -I$(top_builddir)/compat/jansson-2.9/src -I$(top_srcdir)/compat/jansson-2.9/src
 
 if WANT_USBUTILS
-USBUTILS_CPPFLAGS = `pkg-config libusb-1.0 --libs --cflags`
+USBUTILS_CPPFLAGS = `pkg-config libusb-1.0 --cflags`
 else
 USBUTILS_CPPFLAGS =
 endif
