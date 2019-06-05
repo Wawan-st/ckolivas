@@ -230,6 +230,7 @@ bool opt_autofan;
 bool opt_autoengine;
 bool opt_noadl;
 char *opt_api_allow = NULL;
+char *opt_algo;
 char *opt_api_groups;
 char *opt_api_description = PACKAGE_STRING;
 int opt_api_port = 4028;
@@ -1352,6 +1353,9 @@ static struct opt_table opt_config_table[] = {
 	OPT_WITHOUT_ARG("--api-listen",
 			opt_set_bool, &opt_api_listen,
 			"Enable API, default: disabled"),
+	OPT_WITH_ARG("--algo",
+			opt_set_charp, NULL, &opt_algo,
+			"algo to mining, support x16r, skunk"),
 	OPT_WITHOUT_ARG("--api-mcast",
 			opt_set_bool, &opt_api_mcast,
 			"Enable API Multicast listener, default: disabled"),
@@ -4281,6 +4285,13 @@ static const double bits192 = 62771017353866807638357894232076664161023554444640
 static const double bits128 = 340282366920938463463374607431768211456.0;
 static const double bits64 = 18446744073709551616.0;
 
+double get_diff1(char *algo) {
+    if(strcmp(algo, "x16r") == 0 ) {
+        return truediffone * 256.0;
+    } 
+    return truediffone;
+}
+
 /* Converts a little endian 256 bit value to a double */
 static double le256todouble(const void *target)
 {
@@ -4306,7 +4317,8 @@ static double diff_from_target(void *target)
 {
 	double d64, dcut64;
 
-	d64 = truediffone;
+    d64 = get_diff1(opt_algo);
+	//d64 = truediffone;
 	dcut64 = le256todouble(target);
 	if (unlikely(!dcut64))
 		dcut64 = 1;
@@ -5143,8 +5155,8 @@ uint64_t share_diff(const struct work *work)
 	bool new_best = false;
 	double d64, s64;
 	uint64_t ret;
-
-	d64 = truediffone;
+	//d64 = truediffone;
+    d64 = get_diff1(opt_algo);
 	s64 = le256todouble(work->hash);
 	if (unlikely(!s64))
 		s64 = 0;
@@ -7640,7 +7652,8 @@ void set_target(unsigned char *dest_target, double diff)
 		diff = 1.0;
 	}
 
-	d64 = truediffone;
+    d64 = get_diff1(opt_algo);
+	//d64 = truediffone;
 	d64 /= diff;
 
 	dcut64 = d64 / bits192;
@@ -10645,8 +10658,8 @@ begin_bench:
 			applog(LOG_WARNING, "Waiting for USB hotplug devices or press q to quit");
 		}
 #else
-		if (!total_devices)
-			early_quit(1, "All devices disabled, cannot mine!");
+		//if (!total_devices)
+	//		early_quit(1, "All devices disabled, cannot mine!");
 #endif
 	}
 
