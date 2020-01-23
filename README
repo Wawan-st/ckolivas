@@ -310,7 +310,7 @@ Options for both config file and command line:
 --bitmain-voltage <arg> Set bitmain voltage - S2/S3 only
 --bitmain-dev <arg> Set bitmain device - S2 only
 --bitmainbeeper     Set bitmain beeper ringing
---bitmaintempoverctrl Set bitmain stop runing when temprerature is over 80 degree Celsius
+--bitmaintempoverctrl Set bitmain stop running when temperature is over 80 degree Celsius
 --bxf-bits <arg>    Set max BXF/HXF bits for overclocking (default: 54)
 --bxf-temp-target <arg> Set target temperature for BXF/HXF devices (default: 82)
 --bxm-bits <arg>    Set BXM bits for overclocking (default: 54)
