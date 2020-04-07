@@ -3259,6 +3259,8 @@ rereceive:
 		if (method_val && parse_method(pool, sret)) {
 			free(sret);
 			sret = NULL;
+			json_decref(val);
+			val = NULL;
 			goto rereceive;
 		}
 	}
@@ -3339,12 +3341,17 @@ out:
 			cg_wlock(&pool->data_lock);
 			free(pool->sessionid);
 			free(pool->nonce1);
+			free(pool->nonce1bin);
 			pool->sessionid = pool->nonce1 = NULL;
+			pool->nonce1bin = NULL;
 			cg_wunlock(&pool->data_lock);
 
 			applog(LOG_DEBUG, "Failed to resume stratum, trying afresh");
 			noresume = true;
 			json_decref(val);
+			val = NULL;
+			free(sret);
+			sret = NULL;
 			goto resend;
 		}
 		applog(LOG_DEBUG, "Initiate stratum failed");
